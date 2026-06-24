@@ -1,0 +1,52 @@
+{% extends "expense/base.html" %}
+
+{% block title %}
+Groups
+{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4" data-animate>
+    <div>
+        <h2 class="page-title mb-1">Groups</h2>
+        <p class="text-muted mb-0">Split shared expenses and settle balances without the chaos.</p>
+    </div>
+    <a href="{% url 'group-create' %}" class="btn btn-primary">+ New Group</a>
+</div>
+
+<div class="row g-3">
+    {% for group in groups %}
+    <div class="col-lg-6" data-animate>
+        <div class="card h-100">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-start mb-3">
+                    <div>
+                        <h5 class="mb-1">{{ group.name }}</h5>
+                        <p class="text-muted mb-0">{{ group.description|default:"Shared spending group" }}</p>
+                    </div>
+                    <span class="badge bg-info text-dark">{{ group.members.count }} members</span>
+                </div>
+
+                <div class="d-flex justify-content-between small text-muted mb-3">
+                    <span>Total shared expense</span>
+                    <span>₹{{ group.total_expense|floatformat:2 }}</span>
+                </div>
+
+                <div class="d-flex justify-content-end gap-2">
+                    <a href="{% url 'group-detail' group.id %}" class="btn btn-outline-light btn-sm">View</a>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% empty %}
+    <div class="col-12" data-animate>
+        <div class="card">
+            <div class="card-body text-center py-5">
+                <h5>No groups yet</h5>
+                <p class="text-muted">Create a group to split meals, trips, and shared bills.</p>
+                <a href="{% url 'group-create' %}" class="btn btn-primary">Create Group</a>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% endblock %}

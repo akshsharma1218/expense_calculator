@@ -1,0 +1,45 @@
+{% extends "expense/base.html" %}
+
+{% block content %}
+
+<div class="row justify-content-center">
+    <div class="col-lg-8">
+        <div class="card shadow-sm" data-animate>
+            <div class="card-header border-0 py-3">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <h4 class="mb-1">{{ title|default:"Form" }}</h4>
+                        <p class="text-muted mb-0">Keep your financial records clean and consistent.</p>
+                    </div>
+                </div>
+            </div>
+            <div class="card-body">
+                <form method="post" class="row g-3">
+                    {% csrf_token %}
+
+                    {% for field in form %}
+                        <div class="col-md-6">
+                            <label for="{{ field.id_for_label }}" class="form-label">{{ field.label }}</label>
+                            {{ field }}
+                            {% if field.help_text %}
+                                <div class="form-text">{{ field.help_text }}</div>
+                            {% endif %}
+                            {% if field.errors %}
+                                <div class="text-danger small">{{ field.errors|striptags }}</div>
+                            {% endif %}
+                        </div>
+                    {% empty %}
+                        <div class="col-12">No fields available.</div>
+                    {% endfor %}
+
+                    <div class="col-12 d-flex justify-content-end gap-2 mt-3">
+                        <a href="javascript:history.back()" class="btn btn-outline-secondary">Cancel</a>
+                        <button class="btn btn-success" type="submit">Save</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}

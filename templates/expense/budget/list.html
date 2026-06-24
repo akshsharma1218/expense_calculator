@@ -1,0 +1,67 @@
+{% extends "expense/base.html" %}
+
+{% block title %}
+Budgets
+{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h2 class="mb-0">Budgets</h2>
+        <p class="text-muted mb-0">Track your monthly spending limits and stay in control.</p>
+    </div>
+    <a href="{% url 'budget-create' %}" class="btn btn-primary">+ New Budget</a>
+</div>
+
+<div class="row g-3">
+    {% for item in budgets %}
+    <div class="col-lg-6">
+        <div class="card shadow-sm h-100">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-start mb-3">
+                    <div>
+                        <h5 class="mb-1">{{ item.budget.category.name }}</h5>
+                        <p class="text-muted mb-0">{{ item.budget.month }}/{{ item.budget.year }}</p>
+                    </div>
+                    <div class="text-end">
+                        <span class="badge {% if item.is_over_budget %}bg-danger{% else %}bg-success{% endif %}">
+                            {% if item.is_over_budget %}Over Budget{% else %}On Track{% endif %}
+                        </span>
+                    </div>
+                </div>
+
+                <div class="mb-3">
+                    <div class="d-flex justify-content-between small text-muted mb-1">
+                        <span>Spent</span>
+                        <span>₹{{ item.spent|floatformat:2 }}</span>
+                    </div>
+                    <div class="progress" style="height: 10px;">
+                        <div class="progress-bar {% if item.is_over_budget %}bg-danger{% else %}bg-primary{% endif %}" role="progressbar" style="width: {{ item.percentage_used|floatformat:0 }}%;"></div>
+                    </div>
+                    <div class="d-flex justify-content-between small text-muted mt-1">
+                        <span>Budget: ₹{{ item.budget_amount|floatformat:2 }}</span>
+                        <span>Remaining: ₹{{ item.remaining|floatformat:2 }}</span>
+                    </div>
+                </div>
+
+                <div class="d-flex justify-content-end gap-2">
+                    <a href="{% url 'budget-detail' item.budget.id %}" class="btn btn-outline-primary btn-sm">View</a>
+                    <a href="{% url 'budget-update' item.budget.id %}" class="btn btn-outline-secondary btn-sm">Edit</a>
+                    <a href="{% url 'budget-delete' item.budget.id %}" class="btn btn-outline-danger btn-sm">Delete</a>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% empty %}
+    <div class="col-12">
+        <div class="card shadow-sm">
+            <div class="card-body text-center py-5">
+                <h5>No budgets yet</h5>
+                <p class="text-muted">Set a budget for each category to monitor your spending.</p>
+                <a href="{% url 'budget-create' %}" class="btn btn-primary">Create Budget</a>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% endblock %}

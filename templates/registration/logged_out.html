@@ -1,0 +1,20 @@
+{% extends "expense/base.html" %}
+
+{% block content %}
+
+<div class="text-center">
+
+    <h3>
+        Logged Out Successfully
+    </h3>
+
+    <a
+        href="{% url 'login' %}"
+        class="btn btn-primary"
+    >
+        Login Again
+    </a>
+
+</div>
+
+{% endblock %}

@@ -1,0 +1,69 @@
+{% extends "expense/base.html" %}
+
+{% block title %}
+{{ group.name }}
+{% endblock %}
+
+{% block content %}
+<div class="row g-4">
+    <div class="col-lg-8" data-animate>
+        <div class="card">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-start mb-3">
+                    <div>
+                        <h3 class="mb-1">{{ group.name }}</h3>
+                        <p class="text-muted mb-0">{{ group.description|default:"Shared expense group" }}</p>
+                    </div>
+                    <a href="{% url 'group-settlement' group.id %}" class="btn btn-primary">Settle Up</a>
+                </div>
+
+                <div class="row g-3 mb-3">
+                    <div class="col-md-6">
+                        <div class="stat-chip h-100">
+                            <div class="kpi-label">Total Expense</div>
+                            <div class="kpi-value">₹{{ group.total_expense|floatformat:2 }}</div>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="stat-chip h-100">
+                            <div class="kpi-label">Members</div>
+                            <div class="kpi-value">{{ members.count }}</div>
+                        </div>
+                    </div>
+                </div>
+
+                <h5 class="mb-3">Members</h5>
+                <ul class="list-group list-group-flush">
+                    {% for member in members %}
+                    <li class="list-group-item px-0">{{ member.user.username }}</li>
+                    {% empty %}
+                    <li class="list-group-item px-0">No members added yet.</li>
+                    {% endfor %}
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-4" data-animate>
+        <div class="card">
+            <div class="card-body">
+                <h5 class="mb-3">Balances</h5>
+                {% if balances %}
+                <ul class="list-group list-group-flush">
+                    {% for balance in balances %}
+                    <li class="list-group-item px-0">
+                        <div class="d-flex justify-content-between">
+                            <span>{{ balance.from_user.username }} → {{ balance.to_user.username }}</span>
+                            <span>₹{{ balance.amount|floatformat:2 }}</span>
+                        </div>
+                    </li>
+                    {% endfor %}
+                </ul>
+                {% else %}
+                <p class="text-muted mb-0">No balances recorded yet.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
