@@ -1,37 +1,32 @@
 {% extends "expense/base.html" %}
 
-{% block title %}
-Create Account
-{% endblock %}
+{% block title %}Sign Up — FinFlow{% endblock %}
 
 {% block content %}
-<div class="row justify-content-center" data-animate>
-    <div class="col-md-6 col-lg-5">
-        <div class="card">
-            <div class="card-header">
-                <h3 class="mb-1">Create your account</h3>
-                <p class="text-muted mb-0">Start tracking your money with a polished finance setup.</p>
-            </div>
-            <div class="card-body">
-                <form method="post" class="row g-3">
-                    {% csrf_token %}
+<div class="glass-card" data-animate>
+    <div class="glass-card-body p-4">
+        <h3 class="mb-1" style="font-weight:700">Create your account</h3>
+        <p class="text-muted mb-4">Start tracking your money with a beautiful finance dashboard.</p>
 
-                    {% for field in form %}
-                    <div class="col-12">
-                        <label for="{{ field.id_for_label }}" class="form-label">{{ field.label }}</label>
-                        {{ field }}
-                        {% if field.errors %}
-                        <div class="text-danger small mt-1">{{ field.errors|striptags }}</div>
-                        {% endif %}
-                    </div>
-                    {% endfor %}
-
-                    <div class="col-12 mt-2">
-                        <button class="btn btn-success w-100" type="submit">Register</button>
-                    </div>
-                </form>
+        <form method="post" class="row g-3">
+            {% csrf_token %}
+            {% for field in form %}
+            <div class="col-12">
+                <label for="{{ field.id_for_label }}" class="form-label">{{ field.label }}</label>
+                {{ field }}
+                {% if field.errors %}
+                <div class="text-danger small mt-1">{{ field.errors|striptags }}</div>
+                {% endif %}
             </div>
-        </div>
+            {% endfor %}
+            <div class="col-12 mt-2">
+                <button class="btn btn-primary w-100 py-2" type="submit">Create Account</button>
+            </div>
+        </form>
+
+        <p class="text-center text-muted mt-4 mb-0 small">
+            Already have an account? <a href="{% url 'login' %}" style="color:var(--accent-2)">Sign in</a>
+        </p>
     </div>
 </div>
 {% endblock %}

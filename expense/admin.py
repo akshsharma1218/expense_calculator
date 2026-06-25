@@ -3,11 +3,13 @@ from django.contrib import admin
 from .models import (
     Account,
     Category,
+    EntryType,
+    LedgerEntry,
     Merchant,
     Tag,
     Transaction,
+    TransactionGroup,
     TransactionItem,
-    LedgerEntry,
     Budget,
     ExpenseGroup,
     GroupMember,
@@ -44,12 +46,14 @@ class CategoryAdmin(admin.ModelAdmin):
     list_display = (
         "name",
         "category_type",
+        "normal_side",
         "parent",
         "is_system",
     )
 
     list_filter = (
         "category_type",
+        "normal_side",
         "is_system",
     )
 
@@ -92,20 +96,34 @@ class TransactionItemInline(admin.TabularInline):
     extra = 0
 
 
+@admin.register(TransactionGroup)
+class TransactionGroupAdmin(admin.ModelAdmin):
+    list_display = (
+        "operation_type",
+        "created_by",
+        "created_at",
+    )
+
+    list_filter = (
+        "operation_type",
+    )
+
+
 @admin.register(Transaction)
 class TransactionAdmin(admin.ModelAdmin):
     list_display = (
         "transaction_date",
         "user",
-        "transaction_type",
+        "entry_type",
         "amount",
         "account",
         "category",
+        "transaction_group",
         "is_deleted",
     )
 
     list_filter = (
-        "transaction_type",
+        "entry_type",
         "is_deleted",
     )
 
@@ -148,10 +166,12 @@ class LedgerEntryAdmin(admin.ModelAdmin):
         "entry_type",
         "amount",
         "running_balance",
+        "is_reversal",
     )
 
     list_filter = (
         "entry_type",
+        "is_reversal",
     )
 
 

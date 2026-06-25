@@ -1,117 +1,151 @@
 {% extends "expense/base.html" %}
 
-{% block title %}
-Dashboard
+{% block title %}Dashboard — FinFlow{% endblock %}
+
+{% block page_heading %}Dashboard{% endblock %}
+
+{% block topbar_actions %}
+<a href="{% url 'transaction-create' %}" class="btn-glow">
+    <i class="bi bi-plus-lg"></i> New Transaction
+</a>
 {% endblock %}
 
 {% block content %}
-<div class="hero-card mb-4" data-animate>
-    <div class="row align-items-center g-3">
+
+<!-- Hero -->
+<div class="hero-card glass-card mb-4" data-animate>
+    <div class="row align-items-center g-3 position-relative" style="z-index:1">
         <div class="col-lg-8">
-            <span class="soft-pill">✨ GenZ finance mode</span>
-            <h2 class="page-title mt-2 mb-2">Your money, but make it aesthetic.</h2>
-            <p class="text-muted mb-0">Track balances, budgets, and spending in one vibrant dashboard built for fast decisions.</p>
+            <span class="soft-pill"><i class="bi bi-stars"></i> {{ current_month_label }}</span>
+            <h1 class="page-title mt-3 mb-2">Your financial pulse</h1>
+            <p class="page-subtitle">Track income, expenses, and savings with real-time insights across all your accounts.</p>
         </div>
         <div class="col-lg-4 text-lg-end">
-            <a href="{% url 'transaction-create' %}" class="btn btn-primary me-2 mb-2">+ Add Transaction</a>
-            <a href="{% url 'account-create' %}" class="btn btn-outline-light mb-2">+ Add Account</a>
+            <div class="quick-actions justify-content-lg-end">
+                <a href="{% url 'transaction-create' %}" class="action-chip"><i class="bi bi-plus-circle"></i> Add Expense</a>
+                <a href="{% url 'account-create' %}" class="action-chip"><i class="bi bi-bank"></i> Add Account</a>
+            </div>
         </div>
     </div>
 </div>
 
-<div class="row g-3 mb-4">
-    <div class="col-md-6 col-xl-3">
-        <div class="card stat-chip h-100" data-animate>
-            <div class="kpi-label">Total Balance</div>
-            <div class="kpi-value">₹{{ total_balance|floatformat:2 }}</div>
+<!-- KPIs -->
+<div class="kpi-grid mb-4">
+    <div class="kpi-card kpi-balance" data-animate>
+        <div class="kpi-icon"><i class="bi bi-wallet2"></i></div>
+        <div class="kpi-label">Total Balance</div>
+        <div class="kpi-value" data-count="{{ total_balance }}" data-prefix="₹"></div>
+    </div>
+    <div class="kpi-card kpi-income" data-animate>
+        <div class="kpi-icon"><i class="bi bi-arrow-down-left"></i></div>
+        <div class="kpi-label">Monthly Income</div>
+        <div class="kpi-value" style="color:var(--success)" data-count="{{ monthly_income }}" data-prefix="₹"></div>
+    </div>
+    <div class="kpi-card kpi-expense" data-animate>
+        <div class="kpi-icon"><i class="bi bi-arrow-up-right"></i></div>
+        <div class="kpi-label">Monthly Expense</div>
+        <div class="kpi-value" style="color:var(--danger)" data-count="{{ monthly_expense }}" data-prefix="₹"></div>
+    </div>
+    <div class="kpi-card kpi-savings" data-animate>
+        <div class="kpi-icon"><i class="bi bi-piggy-bank"></i></div>
+        <div class="kpi-label">Monthly Savings</div>
+        <div class="kpi-value" style="color:var(--accent-3)" data-count="{{ monthly_savings }}" data-prefix="₹"></div>
+    </div>
+</div>
+
+<!-- Charts Row -->
+<div class="row g-4 mb-4">
+    <div class="col-xl-8" data-animate>
+        <div class="glass-card h-100">
+            <div class="glass-card-header">
+                <div>
+                    <strong>Income vs Expense</strong>
+                    <div class="text-muted small mt-1">6-month trend</div>
+                </div>
+                <i class="bi bi-graph-up text-muted"></i>
+            </div>
+            <div class="glass-card-body">
+                <div id="monthlyTrendChart" class="chart-container"></div>
+            </div>
         </div>
     </div>
-    <div class="col-md-6 col-xl-3">
-        <div class="card stat-chip h-100" data-animate>
-            <div class="kpi-label">Monthly Income</div>
-            <div class="kpi-value text-success">₹{{ monthly_income|floatformat:2 }}</div>
-        </div>
-    </div>
-    <div class="col-md-6 col-xl-3">
-        <div class="card stat-chip h-100" data-animate>
-            <div class="kpi-label">Monthly Expense</div>
-            <div class="kpi-value text-danger">₹{{ monthly_expense|floatformat:2 }}</div>
-        </div>
-    </div>
-    <div class="col-md-6 col-xl-3">
-        <div class="card stat-chip h-100" data-animate>
-            <div class="kpi-label">Monthly Savings</div>
-            <div class="kpi-value">₹{{ monthly_savings|floatformat:2 }}</div>
+    <div class="col-xl-4" data-animate>
+        <div class="glass-card h-100">
+            <div class="glass-card-header">
+                <div>
+                    <strong>Spending by Category</strong>
+                    <div class="text-muted small mt-1">{{ current_month_label }}</div>
+                </div>
+                <i class="bi bi-pie-chart text-muted"></i>
+            </div>
+            <div class="glass-card-body">
+                <div id="categoryDonutChart" class="chart-container"></div>
+            </div>
         </div>
     </div>
 </div>
 
-<div class="row g-4">
-    <div class="col-lg-4">
-        <div class="card h-100" data-animate>
-            <div class="card-header d-flex justify-content-between align-items-center">
-                <strong>Accounts</strong>
-                <a href="{% url 'account-list' %}" class="small">View All</a>
+<!-- Accounts + Recent -->
+<div class="row g-4 mb-4">
+    <div class="col-lg-5" data-animate>
+        <div class="glass-card h-100">
+            <div class="glass-card-header">
+                <strong>Account Balances</strong>
+                <a href="{% url 'account-list' %}" class="btn btn-sm btn-outline-light">View All</a>
             </div>
-            <div class="card-body p-0">
-                <table class="table mb-0">
-                    <thead>
-                        <tr><th>Name</th><th>Balance</th></tr>
-                    </thead>
-                    <tbody>
-                        {% for account in accounts %}
-                        <tr>
-                            <td>{{ account.name }}</td>
-                            <td>₹{{ account.current_balance }}</td>
-                        </tr>
-                        {% empty %}
-                        <tr><td colspan="2" class="text-center py-4">No accounts found</td></tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
+            <div class="glass-card-body">
+                <div id="accountBarChart" class="chart-container-sm"></div>
             </div>
         </div>
     </div>
-
-    <div class="col-lg-8">
-        <div class="card h-100" data-animate>
-            <div class="card-header d-flex justify-content-between align-items-center">
+    <div class="col-lg-7" data-animate>
+        <div class="glass-card h-100">
+            <div class="glass-card-header">
                 <strong>Recent Transactions</strong>
-                <a href="{% url 'transaction-list' %}" class="small">View All</a>
+                <a href="{% url 'transaction-list' %}" class="btn btn-sm btn-outline-light">View All</a>
             </div>
-            <div class="card-body p-0">
+            <div class="glass-card-body p-0">
                 <div class="table-responsive">
                     <table class="table table-hover mb-0">
                         <thead>
-                            <tr><th>Date</th><th>Type</th><th>Category</th><th>Account</th><th>Amount</th></tr>
+                            <tr>
+                                <th>Date</th>
+                                <th>Type</th>
+                                <th>Category</th>
+                                <th>Amount</th>
+                            </tr>
                         </thead>
                         <tbody>
                             {% for txn in recent_transactions %}
                             <tr>
-                                <td>{{ txn.transaction_date }}</td>
+                                <td>{{ txn.transaction_date|date:"d M Y" }}</td>
                                 <td>
-                                    {% if txn.transaction_type == "income" %}
-                                        <span class="badge bg-success">Income</span>
-                                    {% elif txn.transaction_type == "expense" %}
-                                        <span class="badge bg-danger">Expense</span>
-                                    {% elif txn.transaction_type == "transfer" %}
-                                        <span class="badge bg-warning text-dark">Transfer</span>
+                                    {% if txn.entry_type == "credit" %}
+                                        <span class="badge badge-income">Credit</span>
+                                    {% elif txn.entry_type == "debit" %}
+                                        <span class="badge badge-expense">Debit</span>
                                     {% else %}
-                                        <span class="badge bg-secondary">{{ txn.transaction_type }}</span>
+                                        <span class="badge badge-refund">{{ txn.entry_type }}</span>
                                     {% endif %}
                                 </td>
-                                <td>{% if txn.category %}{{ txn.category.name }}{% else %}-{% endif %}</td>
-                                <td>{{ txn.account.name }}</td>
+                                <td>{% if txn.category %}{{ txn.category.name }}{% else %}—{% endif %}</td>
                                 <td>
-                                    {% if txn.transaction_type == "expense" %}
-                                        <span class="text-danger">-₹{{ txn.amount }}</span>
+                                    {% if txn.entry_type == "debit" %}
+                                        <span style="color:var(--danger);font-weight:600">-₹{{ txn.amount|floatformat:2 }}</span>
                                     {% else %}
-                                        <span class="text-success">₹{{ txn.amount }}</span>
+                                        <span style="color:var(--success);font-weight:600">₹{{ txn.amount|floatformat:2 }}</span>
                                     {% endif %}
                                 </td>
                             </tr>
                             {% empty %}
-                            <tr><td colspan="5" class="text-center py-4">No transactions found.</td></tr>
+                            <tr>
+                                <td colspan="4">
+                                    <div class="empty-state py-4">
+                                        <i class="bi bi-receipt"></i>
+                                        <p class="text-muted mb-0">No transactions yet</p>
+                                    </div>
+                                </td>
+                            </tr>
                             {% endfor %}
                         </tbody>
                     </table>
@@ -121,17 +155,35 @@ Dashboard
     </div>
 </div>
 
-<div class="card mt-4" data-animate>
-    <div class="card-body">
-        <h5 class="mb-3">Quick Actions</h5>
-        <div class="d-flex gap-2 flex-wrap">
-            <a href="{% url 'transaction-create' %}" class="btn btn-primary">Add Expense</a>
-            <a href="{% url 'account-create' %}" class="btn btn-outline-light">Add Account</a>
-            <a href="{% url 'category-create' %}" class="btn btn-outline-success">Create Category</a>
-            <a href="{% url 'merchant-create' %}" class="btn btn-outline-warning">Create Merchant</a>
-            <a href="{% url 'monthly-report' %}" class="btn btn-outline-secondary">View Reports</a>
+<!-- Quick Actions -->
+<div class="glass-card" data-animate>
+    <div class="glass-card-body">
+        <h5 class="mb-3" style="font-weight:700">Quick Actions</h5>
+        <div class="quick-actions">
+            <a href="{% url 'transaction-create' %}" class="action-chip"><i class="bi bi-plus-circle"></i> Add Expense</a>
+            <a href="{% url 'account-create' %}" class="action-chip"><i class="bi bi-bank"></i> Add Account</a>
+            <a href="{% url 'category-create' %}" class="action-chip"><i class="bi bi-tags"></i> Create Category</a>
+            <a href="{% url 'merchant-create' %}" class="action-chip"><i class="bi bi-shop"></i> Create Merchant</a>
+            <a href="{% url 'budget-create' %}" class="action-chip"><i class="bi bi-pie-chart"></i> Set Budget</a>
+            <a href="{% url 'monthly-report' %}" class="action-chip"><i class="bi bi-bar-chart"></i> View Reports</a>
         </div>
     </div>
 </div>
 
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const trend = {{ chart_monthly_trend|safe }};
+    const categories = {{ chart_category_breakdown|safe }};
+    const accounts = {{ chart_account_distribution|safe }};
+
+    FinFlowCharts.renderMonthlyTrend('monthlyTrendChart', trend);
+    if (categories.length) FinFlowCharts.renderDonut('categoryDonutChart', categories);
+  else document.getElementById('categoryDonutChart').innerHTML = '<div class="empty-state"><i class="bi bi-pie-chart"></i><p class="text-muted">No expenses this month</p></div>';
+    if (accounts.length) FinFlowCharts.renderAccountBar('accountBarChart', accounts);
+  else document.getElementById('accountBarChart').innerHTML = '<div class="empty-state"><i class="bi bi-bank"></i><p class="text-muted">No accounts yet</p></div>';
+});
+</script>
 {% endblock %}

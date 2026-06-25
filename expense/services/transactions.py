@@ -1,104 +1,179 @@
 from decimal import Decimal
 
 from django.db import transaction as db_transaction
-from django.db.models import F
 
-from ..models import Account, LedgerEntry, Transaction, TransactionItem
+from ..models import Category, EntryType, Transaction, TransactionGroup, TransactionItem
 from .base import BaseService, ServiceError
+from .ledger import LedgerService
+
+
+EDITABLE_FIELDS = frozenset({
+    "amount",
+    "category",
+    "merchant",
+    "description",
+    "transaction_date",
+    "reference_number",
+})
 
 
 class TransactionService(BaseService):
+    @staticmethod
+    def operation_type_for_category(category):
+        mapping = {
+            Category.CategoryType.INCOME: TransactionGroup.OperationType.INCOME,
+            Category.CategoryType.EXPENSE: TransactionGroup.OperationType.EXPENSE,
+            Category.CategoryType.REFUND: TransactionGroup.OperationType.REFUND,
+        }
+        return mapping[category.category_type]
+
+    @staticmethod
+    def validate_user_resources(*, user, account, category, merchant=None, tags=None):
+        if account.user_id != user.id:
+            raise ServiceError("Account must belong to current user.")
+        if not category:
+            raise ServiceError("Category is required.")
+        if not category.is_system and category.created_by_id != user.id:
+            raise ServiceError("Category must belong to current user.")
+        if merchant and not merchant.is_system and merchant.created_by_id != user.id:
+            raise ServiceError("Merchant must belong to current user.")
+        if tags:
+            for tag in tags:
+                if tag.user_id != user.id:
+                    raise ServiceError("Tags must belong to current user.")
+
+    @staticmethod
+    def validate_amount(amount):
+        amount = TransactionService._to_decimal(amount)
+        if amount <= 0:
+            raise ServiceError("Amount must be greater than zero.")
+        return amount
+
     @staticmethod
     @db_transaction.atomic
     def create_transaction(
         *,
         user,
         account,
+        category,
         amount,
-        transaction_type,
         transaction_date,
-        category=None,
         merchant=None,
-        transfer_account=None,
         description="",
         reference_number="",
         tags=None,
         items=None,
         is_group_expense=False,
+        operation_type=None,
     ):
-        if transaction_type == Transaction.TransactionType.TRANSFER:
-            if not transfer_account:
-                raise ServiceError("Transfer account is required for transfer transactions.")
-            if transfer_account == account:
-                raise ServiceError("Cannot transfer to the same account.")
-            if category is None:
-                raise ServiceError("Category is required for transfer transactions.")
+        amount = TransactionService.validate_amount(amount)
+        TransactionService.validate_user_resources(
+            user=user,
+            account=account,
+            category=category,
+            merchant=merchant,
+            tags=tags,
+        )
 
-            txn = Transaction.objects.create(
-                user=user,
-                account=account,
-                transfer_account=transfer_account,
-                category=category,
-                merchant=merchant,
-                amount=amount,
-                transaction_type=transaction_type,
-                transaction_date=transaction_date,
-                description=description,
-                reference_number=reference_number,
-                is_group_expense=is_group_expense,
-            )
-        else:
-            if category is None:
-                raise ServiceError("Category is required for non-transfer transactions.")
+        entry_type = category.normal_side
+        if operation_type is None:
+            operation_type = TransactionService.operation_type_for_category(category)
 
-            txn = Transaction.objects.create(
-                user=user,
-                account=account,
-                category=category,
-                merchant=merchant,
-                amount=amount,
-                transaction_type=transaction_type,
-                transaction_date=transaction_date,
-                description=description,
-                reference_number=reference_number,
-                is_group_expense=is_group_expense,
-            )
+        group = TransactionGroup.objects.create(
+            operation_type=operation_type,
+            created_by=user,
+        )
+
+        txn = Transaction.objects.create(
+            user=user,
+            transaction_group=group,
+            account=account,
+            category=category,
+            merchant=merchant,
+            amount=amount,
+            entry_type=entry_type,
+            transaction_date=transaction_date,
+            description=description,
+            reference_number=reference_number,
+            is_group_expense=is_group_expense,
+        )
 
         if tags:
             txn.tags.set(tags)
 
         if items:
-            TransactionItem.objects.bulk_create([TransactionItem(transaction=txn, **item) for item in items])
+            TransactionItem.objects.bulk_create(
+                [TransactionItem(transaction=txn, **item) for item in items]
+            )
 
-        TransactionService._apply_balance_change(txn)
+        LedgerService.post_for_transaction(txn)
         return txn
 
     @staticmethod
     @db_transaction.atomic
-    def create_transfer(*, user, from_account, to_account, amount, transaction_date, category, description="", reference_number=""):
-        return TransactionService.create_transaction(
-            user=user,
-            account=from_account,
-            category=category,
-            amount=amount,
-            transaction_type=Transaction.TransactionType.TRANSFER,
-            transaction_date=transaction_date,
-            transfer_account=to_account,
-            description=description,
-            reference_number=reference_number,
-        )
-
-    @staticmethod
-    @db_transaction.atomic
-    def update_transaction(*, transaction_obj, **data):
+    def update_transaction(*, transaction_obj, items=None, tags=None, **data):
         if transaction_obj.is_deleted:
-            raise ServiceError("Cannot update deleted transaction")
+            raise ServiceError("Cannot update deleted transaction.")
 
-        TransactionService._reverse_balance(transaction_obj)
+        disallowed = set(data.keys()) - EDITABLE_FIELDS
+        if disallowed:
+            raise ServiceError(
+                f"Cannot update immutable fields: {', '.join(sorted(disallowed))}"
+            )
+
+        if items is not None:
+            if not items:
+                raise ServiceError("At least one transaction item is required.")
+            data["amount"] = sum(
+                (item["total_price"] for item in items),
+                Decimal("0.00"),
+            )
+
+        if "amount" in data:
+            data["amount"] = TransactionService.validate_amount(data["amount"])
+
+        if "category" in data:
+            category = data["category"]
+            TransactionService.validate_user_resources(
+                user=transaction_obj.user,
+                account=transaction_obj.account,
+                category=category,
+            )
+            if category.normal_side != transaction_obj.entry_type:
+                raise ServiceError(
+                    "New category must have the same entry side as the transaction."
+                )
+
+        if "merchant" in data and data["merchant"]:
+            merchant = data["merchant"]
+            if not merchant.is_system and merchant.created_by_id != transaction_obj.user_id:
+                raise ServiceError("Merchant must belong to current user.")
+
+        ledger_fields = {"amount", "category"}
+        needs_ledger_refresh = bool(ledger_fields & set(data.keys())) or items is not None
+
+        if needs_ledger_refresh:
+            LedgerService.reverse(transaction=transaction_obj)
+
         for field, value in data.items():
             setattr(transaction_obj, field, value)
         transaction_obj.save()
-        TransactionService._apply_balance_change(transaction_obj)
+
+        if tags is not None:
+            for tag in tags:
+                if tag.user_id != transaction_obj.user_id:
+                    raise ServiceError("Tags must belong to current user.")
+            transaction_obj.tags.set(tags)
+
+        if items is not None:
+            transaction_obj.items.all().delete()
+            TransactionItem.objects.bulk_create(
+                [TransactionItem(transaction=transaction_obj, **item) for item in items]
+            )
+
+        if needs_ledger_refresh:
+            LedgerService.post_for_transaction(transaction_obj)
+
         return transaction_obj
 
     @staticmethod
@@ -107,78 +182,6 @@ class TransactionService(BaseService):
         if transaction_obj.is_deleted:
             return
 
-        TransactionService._reverse_balance(transaction_obj)
+        LedgerService.reverse(transaction=transaction_obj)
         transaction_obj.is_deleted = True
         transaction_obj.save(update_fields=["is_deleted"])
-
-    @staticmethod
-    def _apply_balance_change(transaction_obj):
-        account = transaction_obj.account
-
-        if transaction_obj.transaction_type == Transaction.TransactionType.INCOME:
-            Account.objects.filter(pk=account.pk).update(current_balance=F("current_balance") + transaction_obj.amount)
-            account.refresh_from_db()
-            LedgerEntry.objects.create(
-                transaction=transaction_obj,
-                account=account,
-                entry_type=LedgerEntry.EntryType.CREDIT,
-                amount=transaction_obj.amount,
-                running_balance=account.current_balance,
-            )
-        elif transaction_obj.transaction_type == Transaction.TransactionType.EXPENSE:
-            Account.objects.filter(pk=account.pk).update(current_balance=F("current_balance") - transaction_obj.amount)
-            account.refresh_from_db()
-            LedgerEntry.objects.create(
-                transaction=transaction_obj,
-                account=account,
-                entry_type=LedgerEntry.EntryType.DEBIT,
-                amount=transaction_obj.amount,
-                running_balance=account.current_balance,
-            )
-        elif transaction_obj.transaction_type == Transaction.TransactionType.REFUND:
-            Account.objects.filter(pk=account.pk).update(current_balance=F("current_balance") + transaction_obj.amount)
-            account.refresh_from_db()
-            LedgerEntry.objects.create(
-                transaction=transaction_obj,
-                account=account,
-                entry_type=LedgerEntry.EntryType.CREDIT,
-                amount=transaction_obj.amount,
-                running_balance=account.current_balance,
-            )
-        elif transaction_obj.transaction_type == Transaction.TransactionType.TRANSFER:
-            transfer_account = transaction_obj.transfer_account
-            if transfer_account:
-                Account.objects.filter(pk=account.pk).update(current_balance=F("current_balance") - transaction_obj.amount)
-                Account.objects.filter(pk=transfer_account.pk).update(current_balance=F("current_balance") + transaction_obj.amount)
-                account.refresh_from_db()
-                transfer_account.refresh_from_db()
-                LedgerEntry.objects.create(
-                    transaction=transaction_obj,
-                    account=account,
-                    entry_type=LedgerEntry.EntryType.DEBIT,
-                    amount=transaction_obj.amount,
-                    running_balance=account.current_balance,
-                )
-                LedgerEntry.objects.create(
-                    transaction=transaction_obj,
-                    account=transfer_account,
-                    entry_type=LedgerEntry.EntryType.CREDIT,
-                    amount=transaction_obj.amount,
-                    running_balance=transfer_account.current_balance,
-                )
-
-    @staticmethod
-    def _reverse_balance(transaction_obj):
-        account = transaction_obj.account
-
-        if transaction_obj.transaction_type == Transaction.TransactionType.INCOME:
-            Account.objects.filter(pk=account.pk).update(current_balance=F("current_balance") - transaction_obj.amount)
-        elif transaction_obj.transaction_type == Transaction.TransactionType.EXPENSE:
-            Account.objects.filter(pk=account.pk).update(current_balance=F("current_balance") + transaction_obj.amount)
-        elif transaction_obj.transaction_type == Transaction.TransactionType.REFUND:
-            Account.objects.filter(pk=account.pk).update(current_balance=F("current_balance") - transaction_obj.amount)
-        elif transaction_obj.transaction_type == Transaction.TransactionType.TRANSFER:
-            transfer_account = transaction_obj.transfer_account
-            if transfer_account:
-                Account.objects.filter(pk=account.pk).update(current_balance=F("current_balance") + transaction_obj.amount)
-                Account.objects.filter(pk=transfer_account.pk).update(current_balance=F("current_balance") - transaction_obj.amount)

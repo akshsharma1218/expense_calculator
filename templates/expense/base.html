@@ -1,250 +1,172 @@
 {% load static %}
 
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 
 <head>
-
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Expense Manager{% endblock %}</title>
 
-    <title>
-        {% block title %}
-            Expense Manager
-        {% endblock %}
-    </title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,300..800;1,300..800&display=swap" rel="stylesheet">
 
-    <link
-        href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
-        rel="stylesheet"
-    >
-
-    <link
-        rel="stylesheet"
-        href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css"
-    >
-
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    <link href="https://unpkg.com/tabulator-tables@6.3.0/dist/css/tabulator_midnight.min.css" rel="stylesheet">
     <link rel="stylesheet" href="{% static 'css/app.css' %}">
 
-    {% block extra_css %}
-    {% endblock %}
-
+    {% block extra_css %}{% endblock %}
 </head>
 
-<body>
+<body class="app-body">
 
-<!-- ===================================================== -->
-<!-- NAVBAR -->
-<!-- ===================================================== -->
+{% if user.is_authenticated %}
+<div class="app-shell" id="appShell">
 
-<nav class="navbar navbar-expand-lg navbar-dark bg-dark">
-
-    <div class="container">
-
-        <a
-            class="navbar-brand"
-            href="{% url 'dashboard' %}"
-        >
-            💰 Expense Manager
-        </a>
-
-        <button
-            class="navbar-toggler"
-            type="button"
-            data-bs-toggle="collapse"
-            data-bs-target="#navbarNav"
-        >
-            <span class="navbar-toggler-icon"></span>
-        </button>
-
-        <div
-            class="collapse navbar-collapse"
-            id="navbarNav"
-        >
-
-            {% if user.is_authenticated %}
-
-            <ul class="navbar-nav me-auto">
-
-                <li class="nav-item">
-                    <a
-                        class="nav-link"
-                        href="{% url 'dashboard' %}"
-                    >
-                        Dashboard
-                    </a>
-                </li>
-
-                <li class="nav-item">
-                    <a
-                        class="nav-link"
-                        href="{% url 'account-list' %}"
-                    >
-                        Accounts
-                    </a>
-                </li>
-
-                <li class="nav-item">
-                    <a
-                        class="nav-link"
-                        href="{% url 'transaction-list' %}"
-                    >
-                        Transactions
-                    </a>
-                </li>
-
-                <li class="nav-item">
-                    <a
-                        class="nav-link"
-                        href="{% url 'budget-list' %}"
-                    >
-                        Budgets
-                    </a>
-                </li>
-
-                <li class="nav-item">
-                    <a
-                        class="nav-link"
-                        href="{% url 'group-list' %}"
-                    >
-                        Groups
-                    </a>
-                </li>
-
-                <li class="nav-item">
-                    <a
-                        class="nav-link"
-                        href="{% url 'monthly-report' %}"
-                    >
-                        Reports
-                    </a>
-                </li>
-
-            </ul>
-
-            {% endif %}
-
-            <ul class="navbar-nav ms-auto">
-
-                {% if user.is_authenticated %}
-
-                <li class="nav-item">
-
-                    <span class="navbar-text me-3">
-                        Welcome, {{ user.username }}
-                    </span>
-
-                </li>
-
-                <li class="nav-item">
-
-                    <form
-                        method="post"
-                        action="{% url 'logout' %}"
-                    >
-                        {% csrf_token %}
-
-                        <button
-                            type="submit"
-                            class="btn btn-outline-light btn-sm"
-                        >
-                            Logout
-                        </button>
-
-                    </form>
-
-                </li>
-
-                {% else %}
-
-                <li class="nav-item me-2">
-
-                    <a
-                        href="{% url 'login' %}"
-                        class="btn btn-outline-light btn-sm"
-                    >
-                        Login
-                    </a>
-
-                </li>
-
-                <li class="nav-item">
-
-                    <a
-                        href="{% url 'signup' %}"
-                        class="btn btn-success btn-sm"
-                    >
-                        Register
-                    </a>
-
-                </li>
-
-                {% endif %}
-
-            </ul>
-
+    <!-- Sidebar -->
+    <aside class="sidebar" id="sidebar">
+        <div class="sidebar-brand">
+            <div class="brand-icon">
+                <i class="bi bi-wallet2"></i>
+            </div>
+            <div class="brand-text">
+                <span class="brand-name">FinFlow</span>
+                <span class="brand-tag">Expense Manager</span>
+            </div>
         </div>
 
-    </div>
+        <nav class="sidebar-nav">
+            <span class="nav-section">Overview</span>
+            <a href="{% url 'dashboard' %}" class="nav-item {% if request.resolver_match.url_name == 'dashboard' %}active{% endif %}">
+                <i class="bi bi-grid-1x2-fill"></i>
+                <span>Dashboard</span>
+            </a>
 
-</nav>
+            <span class="nav-section">Finance</span>
+            <a href="{% url 'transaction-list' %}" class="nav-item {% if 'transaction' in request.resolver_match.url_name %}active{% endif %}">
+                <i class="bi bi-arrow-left-right"></i>
+                <span>Transactions</span>
+            </a>
+            <a href="{% url 'account-list' %}" class="nav-item {% if 'account' in request.resolver_match.url_name %}active{% endif %}">
+                <i class="bi bi-bank"></i>
+                <span>Accounts</span>
+            </a>
+            <a href="{% url 'budget-list' %}" class="nav-item {% if 'budget' in request.resolver_match.url_name %}active{% endif %}">
+                <i class="bi bi-pie-chart-fill"></i>
+                <span>Budgets</span>
+            </a>
 
-<!-- ===================================================== -->
-<!-- CONTENT -->
-<!-- ===================================================== -->
+            <span class="nav-section">Organize</span>
+            <a href="{% url 'category-list' %}" class="nav-item {% if 'category' in request.resolver_match.url_name %}active{% endif %}">
+                <i class="bi bi-tags-fill"></i>
+                <span>Categories</span>
+            </a>
+            <a href="{% url 'merchant-list' %}" class="nav-item {% if 'merchant' in request.resolver_match.url_name %}active{% endif %}">
+                <i class="bi bi-shop"></i>
+                <span>Merchants</span>
+            </a>
+            <a href="{% url 'group-list' %}" class="nav-item {% if 'group' in request.resolver_match.url_name %}active{% endif %}">
+                <i class="bi bi-people-fill"></i>
+                <span>Groups</span>
+            </a>
 
-<div class="container mt-4 content-wrapper">
+            <span class="nav-section">Insights</span>
+            <a href="{% url 'monthly-report' %}" class="nav-item {% if request.resolver_match.url_name == 'monthly-report' %}active{% endif %}">
+                <i class="bi bi-bar-chart-line-fill"></i>
+                <span>Monthly Report</span>
+            </a>
+            <a href="{% url 'category-report' %}" class="nav-item {% if request.resolver_match.url_name == 'category-report' %}active{% endif %}">
+                <i class="bi bi-graph-up-arrow"></i>
+                <span>Category Report</span>
+            </a>
+        </nav>
 
-    <!-- Messages -->
-
-    {% if messages %}
-
-        {% for message in messages %}
-
-            <div
-                class="alert alert-{{ message.tags|default:'info' }} alert-dismissible fade show"
-                role="alert"
-            >
-
-                {{ message }}
-
-                <button
-                    type="button"
-                    class="btn-close"
-                    data-bs-dismiss="alert"
-                ></button>
-
+        <div class="sidebar-footer">
+            <div class="user-chip">
+                <div class="user-avatar">{{ user.username|slice:":1"|upper }}</div>
+                <div class="user-info">
+                    <span class="user-name">{{ user.username }}</span>
+                    <span class="user-role">Member</span>
+                </div>
             </div>
+            <form method="post" action="{% url 'logout' %}" class="logout-form">
+                {% csrf_token %}
+                <button type="submit" class="btn-logout" title="Logout">
+                    <i class="bi bi-box-arrow-right"></i>
+                </button>
+            </form>
+        </div>
+    </aside>
 
-        {% endfor %}
+    <div class="sidebar-backdrop" id="sidebarBackdrop"></div>
 
-    {% endif %}
+    <!-- Main -->
+    <div class="main-area">
+        <header class="topbar">
+            <button class="btn-icon sidebar-toggle" id="sidebarToggle" aria-label="Toggle menu">
+                <i class="bi bi-list"></i>
+            </button>
+            <div class="topbar-title">
+                {% block page_heading %}{% endblock %}
+            </div>
+            <div class="topbar-actions">
+                {% block topbar_actions %}{% endblock %}
+            </div>
+        </header>
 
-    {% block content %}
-    {% endblock %}
+        <main class="page-content">
+            {% if messages %}
+            <div class="toast-stack" id="toastStack">
+                {% for message in messages %}
+                <div class="app-toast toast-{{ message.tags|default:'info' }}" data-toast>
+                    <i class="bi bi-{% if message.tags == 'success' %}check-circle-fill{% elif message.tags == 'error' %}exclamation-circle-fill{% else %}info-circle-fill{% endif %}"></i>
+                    <span>{{ message }}</span>
+                    <button class="toast-close" onclick="this.parentElement.remove()"><i class="bi bi-x"></i></button>
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
 
-</div>
-
-<!-- ===================================================== -->
-<!-- FOOTER -->
-<!-- ===================================================== -->
-
-<footer class="mt-5 py-3">
-
-    <div class="container text-center text-muted">
-
-        Expense Manager © {% now "Y" %}
-
+            <div class="page-enter">
+{% else %}
+<!-- Auth layout (login/signup) -->
+<div class="auth-layout">
+    <div class="auth-bg">
+        <div class="auth-orb auth-orb-1"></div>
+        <div class="auth-orb auth-orb-2"></div>
+        <div class="auth-orb auth-orb-3"></div>
     </div>
+    <div class="auth-container">
+        <div class="auth-brand mb-4 text-center">
+            <div class="brand-icon brand-icon-lg mx-auto mb-3">
+                <i class="bi bi-wallet2"></i>
+            </div>
+            <h1 class="auth-title">FinFlow</h1>
+            <p class="auth-subtitle">Smart expense tracking, beautifully designed</p>
+        </div>
+{% endif %}
 
-</footer>
+{% block content %}{% endblock %}
+
+{% if user.is_authenticated %}
+            </div>
+        </main>
+    </div>
+</div>
+{% else %}
+    </div>
+</div>
+{% endif %}
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/apexcharts@3.49.1/dist/apexcharts.min.js"></script>
+<script src="https://unpkg.com/tabulator-tables@6.3.0/dist/js/tabulator.min.js"></script>
+<script src="{% static 'js/charts.js' %}"></script>
+<script src="{% static 'js/tables.js' %}"></script>
 <script src="{% static 'js/app.js' %}"></script>
-
-{% block extra_js %}
-{% endblock %}
+{% block extra_js %}{% endblock %}
 
 </body>
-
 </html>

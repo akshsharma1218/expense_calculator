@@ -1,47 +1,87 @@
 {% extends "expense/base.html" %}
 
-{% block title %}
-Monthly Report
-{% endblock %}
+{% block title %}Monthly Report — FinFlow{% endblock %}
+
+{% block page_heading %}Reports{% endblock %}
 
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-4">
-    <div>
-        <h2 class="mb-0">Monthly Report</h2>
-        <p class="text-muted mb-0">A quick breakdown of your monthly spending.</p>
+
+<div class="report-nav" data-animate>
+    <a href="{% url 'monthly-report' %}" class="active">Monthly Report</a>
+    <a href="{% url 'category-report' %}">Category Report</a>
+</div>
+
+<div class="mb-4" data-animate>
+    <h1 class="page-title">Monthly Report</h1>
+    <p class="page-subtitle">Expense breakdown by category across all time.</p>
+</div>
+
+{% if data %}
+<div class="kpi-grid mb-4" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));">
+    <div class="kpi-card kpi-expense" data-animate>
+        <div class="kpi-icon"><i class="bi bi-cash-stack"></i></div>
+        <div class="kpi-label">Total Expenses</div>
+        <div class="kpi-value" style="color:var(--danger)" data-count="{{ total_expense }}" data-prefix="₹"></div>
+    </div>
+    <div class="kpi-card kpi-balance" data-animate>
+        <div class="kpi-icon"><i class="bi bi-tags"></i></div>
+        <div class="kpi-label">Categories</div>
+        <div class="kpi-value">{{ data|length }}</div>
     </div>
 </div>
 
-<div class="card shadow-sm">
-    <div class="card-body">
-        {% if data %}
-        <div class="table-responsive">
-            <table class="table table-hover align-middle">
-                <thead class="table-light">
-                    <tr>
-                        <th>Category</th>
-                        <th>Amount</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for item in data %}
-                    <tr>
-                        <td>{{ item.category__name }}</td>
-                        <td>₹{{ item.total|floatformat:2 }}</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-                <tfoot class="table-light">
-                    <tr>
-                        <th>Total</th>
-                        <th>₹{{ total_expense|floatformat:2 }}</th>
-                    </tr>
-                </tfoot>
-            </table>
+<div class="row g-4 mb-4">
+    <div class="col-lg-5" data-animate>
+        <div class="glass-card h-100">
+            <div class="glass-card-header">
+                <strong>Distribution</strong>
+            </div>
+            <div class="glass-card-body">
+                <div id="reportDonut" class="chart-container"></div>
+            </div>
         </div>
-        {% else %}
-        <div class="text-center py-5 text-muted">No expenses recorded for this report yet.</div>
-        {% endif %}
+    </div>
+    <div class="col-lg-7" data-animate>
+        <div class="glass-card h-100">
+            <div class="glass-card-header">
+                <strong>By Category</strong>
+            </div>
+            <div class="glass-card-body">
+                <div id="reportBar" class="chart-container"></div>
+            </div>
+        </div>
     </div>
 </div>
+
+<div class="glass-card" data-animate>
+    <div class="glass-card-header">
+        <strong>Detailed Breakdown</strong>
+    </div>
+    <div id="reportTable"></div>
+</div>
+
+{% else %}
+<div class="glass-card" data-animate>
+    <div class="empty-state">
+        <i class="bi bi-bar-chart"></i>
+        <h5>No expense data yet</h5>
+        <p class="text-muted">Start tracking expenses to see your monthly report.</p>
+        <a href="{% url 'transaction-create' %}" class="btn btn-primary mt-2">Add Transaction</a>
+    </div>
+</div>
+{% endif %}
+
+{% endblock %}
+
+{% block extra_js %}
+{% if data %}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const data = {{ chart_data|safe }};
+    FinFlowCharts.renderDonut('reportDonut', data, { totalLabel: 'Total Spent' });
+    FinFlowCharts.renderBar('reportBar', data, { height: 300 });
+    FinFlowTables.initReportTable('reportTable', data);
+});
+</script>
+{% endif %}
 {% endblock %}

@@ -1,66 +1,74 @@
 {% extends "expense/base.html" %}
 
-{% block title %}
-{{ group.name }}
+{% block title %}{{ group.name }} — FinFlow{% endblock %}
+{% block page_heading %}{{ group.name }}{% endblock %}
+
+{% block topbar_actions %}
+<a href="{% url 'group-settlement' group.id %}" class="btn-glow">
+    <i class="bi bi-cash-coin"></i> Settle Up
+</a>
 {% endblock %}
 
 {% block content %}
 <div class="row g-4">
     <div class="col-lg-8" data-animate>
-        <div class="card">
-            <div class="card-body">
-                <div class="d-flex justify-content-between align-items-start mb-3">
-                    <div>
-                        <h3 class="mb-1">{{ group.name }}</h3>
-                        <p class="text-muted mb-0">{{ group.description|default:"Shared expense group" }}</p>
-                    </div>
-                    <a href="{% url 'group-settlement' group.id %}" class="btn btn-primary">Settle Up</a>
+        <div class="glass-card">
+            <div class="glass-card-body">
+                <div class="mb-4">
+                    <h2 class="page-title mb-1">{{ group.name }}</h2>
+                    <p class="text-muted mb-0">{{ group.description|default:"Shared expense group" }}</p>
                 </div>
 
-                <div class="row g-3 mb-3">
-                    <div class="col-md-6">
-                        <div class="stat-chip h-100">
-                            <div class="kpi-label">Total Expense</div>
-                            <div class="kpi-value">₹{{ group.total_expense|floatformat:2 }}</div>
-                        </div>
+                <div class="kpi-grid mb-4" style="grid-template-columns: repeat(2, 1fr);">
+                    <div class="kpi-card kpi-expense" style="padding:16px">
+                        <div class="kpi-label">Total Expense</div>
+                        <div class="kpi-value" style="font-size:1.2rem">₹{{ group.total_expense|floatformat:2 }}</div>
                     </div>
-                    <div class="col-md-6">
-                        <div class="stat-chip h-100">
-                            <div class="kpi-label">Members</div>
-                            <div class="kpi-value">{{ members.count }}</div>
-                        </div>
+                    <div class="kpi-card kpi-balance" style="padding:16px">
+                        <div class="kpi-label">Members</div>
+                        <div class="kpi-value" style="font-size:1.2rem">{{ members.count }}</div>
                     </div>
                 </div>
 
-                <h5 class="mb-3">Members</h5>
-                <ul class="list-group list-group-flush">
+                <h5 class="mb-3" style="font-weight:700">Members</h5>
+                <div class="d-flex flex-wrap gap-2">
                     {% for member in members %}
-                    <li class="list-group-item px-0">{{ member.user.username }}</li>
+                    <span class="action-chip"><i class="bi bi-person"></i> {{ member.user.username }}</span>
                     {% empty %}
-                    <li class="list-group-item px-0">No members added yet.</li>
+                    <p class="text-muted">No members added yet.</p>
                     {% endfor %}
-                </ul>
+                </div>
             </div>
         </div>
     </div>
 
     <div class="col-lg-4" data-animate>
-        <div class="card">
-            <div class="card-body">
-                <h5 class="mb-3">Balances</h5>
+        <div class="glass-card h-100">
+            <div class="glass-card-header">
+                <strong>Balances</strong>
+            </div>
+            <div class="glass-card-body p-0">
                 {% if balances %}
-                <ul class="list-group list-group-flush">
-                    {% for balance in balances %}
-                    <li class="list-group-item px-0">
-                        <div class="d-flex justify-content-between">
-                            <span>{{ balance.from_user.username }} → {{ balance.to_user.username }}</span>
-                            <span>₹{{ balance.amount|floatformat:2 }}</span>
-                        </div>
-                    </li>
-                    {% endfor %}
-                </ul>
+                <div class="table-responsive">
+                    <table class="table mb-0">
+                        <tbody>
+                            {% for balance in balances %}
+                            <tr>
+                                <td>
+                                    <span style="font-weight:600">{{ balance.from_user.username }}</span>
+                                    <i class="bi bi-arrow-right mx-1 text-muted"></i>
+                                    <span>{{ balance.to_user.username }}</span>
+                                </td>
+                                <td class="text-end" style="font-weight:600;color:var(--warning)">₹{{ balance.balance_amount|floatformat:2 }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
                 {% else %}
-                <p class="text-muted mb-0">No balances recorded yet.</p>
+                <div class="empty-state py-4">
+                    <p class="text-muted mb-0 small">No balances recorded yet</p>
+                </div>
                 {% endif %}
             </div>
         </div>

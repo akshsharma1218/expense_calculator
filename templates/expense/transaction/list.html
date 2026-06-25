@@ -1,54 +1,40 @@
 {% extends "expense/base.html" %}
 
-{% block title %}
-Transactions
+{% block title %}Transactions — FinFlow{% endblock %}
+
+{% block page_heading %}Transactions{% endblock %}
+
+{% block topbar_actions %}
+<a href="{% url 'transaction-create' %}" class="btn-glow">
+    <i class="bi bi-plus-lg"></i> Add Transaction
+</a>
 {% endblock %}
 
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-4" data-animate>
-    <div>
-        <h2 class="page-title mb-1">Transactions</h2>
-        <p class="text-muted mb-0">Every move, clearly captured.</p>
-    </div>
-    <a class="btn btn-primary" href="{% url 'transaction-create' %}">+ Add Transaction</a>
+
+<div class="mb-4" data-animate>
+    <h1 class="page-title">Transactions</h1>
+    <p class="page-subtitle">Search, filter, and manage every financial move.</p>
 </div>
 
-<div class="card" data-animate>
-    <div class="card-body p-0">
-        <div class="table-responsive">
-            <table class="table table-hover mb-0">
-                <thead>
-                    <tr>
-                        <th>Date</th>
-                        <th>Category</th>
-                        <th>Merchant</th>
-                        <th>Account</th>
-                        <th>Amount</th>
-                        <th></th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for txn in transactions %}
-                    <tr>
-                        <td>{{ txn.transaction_date }}</td>
-                        <td>{{ txn.category.name }}</td>
-                        <td>{{ txn.merchant.name|default:"-" }}</td>
-                        <td>{{ txn.account.name }}</td>
-                        <td>₹{{ txn.amount }}</td>
-                        <td>
-                            <a href="{% url 'transaction-delete' txn.id %}" class="btn btn-sm btn-outline-danger">Delete</a>
-                        </td>
-                    </tr>
-                    {% empty %}
-                    <tr><td colspan="6" class="text-center py-4">No transactions yet.</td></tr>
-                    {% endfor %}
-                </tbody>
-            </table>
+<div class="glass-card" data-animate>
+    <div class="table-toolbar">
+        <div class="table-search">
+            <i class="bi bi-search"></i>
+            <input type="text" id="txnSearch" placeholder="Search transactions...">
         </div>
+        <span class="table-meta">{{ transaction_count }} transaction{{ transaction_count|pluralize }}</span>
     </div>
+    <div id="transactionsTable"></div>
 </div>
 
-<div class="mt-3">
-    {% include "expense/components/pagination.html" %}
-</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const data = {{ transactions_json|safe }};
+    FinFlowTables.initTransactions('transactionsTable', data, 'txnSearch');
+});
+</script>
 {% endblock %}

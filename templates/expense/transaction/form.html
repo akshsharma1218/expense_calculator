@@ -1,24 +1,26 @@
 {% extends "expense/base.html" %}
 {% load static %}
 
-
-{% block title %}
-Create Transaction
-{% endblock %}
+{% block title %}{% if is_edit %}Edit{% else %}Create{% endif %} Transaction — FinFlow{% endblock %}
+{% block page_heading %}{% if is_edit %}Edit Transaction{% else %}New Transaction{% endif %}{% endblock %}
 
 {% block content %}
 <div class="row justify-content-center" data-animate>
     <div class="col-lg-10">
-        <div class="card">
-            <div class="card-header border-0 py-3">
-                <div class="d-flex justify-content-between align-items-start gap-3">
-                    <div>
-                        <h3 class="mb-1">Create Transaction</h3>
-                        <p class="text-muted mb-0">Log income, expenses, and custom items in a single flow.</p>
-                    </div>
+        <div class="glass-card">
+            <div class="glass-card-header">
+                <div>
+                    <h3 class="mb-1" style="font-weight:700">{% if is_edit %}Edit Transaction{% else %}Create Transaction{% endif %}</h3>
+                    <p class="text-muted mb-0 small">
+                        {% if is_edit %}
+                        Update details and line items. The total is recalculated from items automatically.
+                        {% else %}
+                        Log income, expenses, and line items in one flow.
+                        {% endif %}
+                    </p>
                 </div>
             </div>
-            <div class="card-body">
+            <div class="glass-card-body">
                 <form method="post" class="row g-3">
                     {% csrf_token %}
 
@@ -44,26 +46,42 @@ Create Transaction
                     {% endfor %}
 
                     <div class="col-12 mt-3">
-                        <div class="card border-0" data-animate>
-                            <div class="card-header border-0 py-3">
+                        <div class="glass-card" data-animate style="background:var(--panel-strong)">
+                            <div class="glass-card-header py-2">
                                 <div class="d-flex justify-content-between align-items-center">
                                     <h5 class="mb-0">Transaction Items</h5>
                                     <button type="button" class="btn btn-outline-light btn-sm" id="add-item-btn">+ Add Item</button>
                                 </div>
                             </div>
-                            <div class="card-body">
+                            <div class="glass-card-body p-3">
                                 {{ formset.management_form }}
+                                {% if formset.non_form_errors %}
+                                <div class="alert alert-danger mb-3">{{ formset.non_form_errors }}</div>
+                                {% endif %}
                                 <div class="table-responsive">
                                     <table class="table align-middle mb-0">
                                         <thead>
-                                            <tr><th>Item</th><th width="120">Qty</th><th width="150">Unit Price</th><th width="150">Total</th><th width="80"></th></tr>
+                                            <tr><th>Item</th><th width="120">Qty</th><th width="150">Unit Price</th><th width="120">Total</th><th width="80"></th></tr>
                                         </thead>
                                         <tbody id="items-body">
                                             {% for item_form in formset %}
                                             <tr class="item-row">
-                                                <td>{{ item_form.name }}</td>
-                                                <td>{{ item_form.quantity }}</td>
-                                                <td>{{ item_form.unit_price }}</td>
+                                                <td class="d-none">
+                                                    {% if item_form.id %}{{ item_form.id }}{% endif %}
+                                                    {% if item_form.DELETE %}{{ item_form.DELETE }}{% endif %}
+                                                </td>
+                                                <td>
+                                                    {{ item_form.name }}
+                                                    {% if item_form.name.errors %}<div class="text-danger small">{{ item_form.name.errors|striptags }}</div>{% endif %}
+                                                </td>
+                                                <td>
+                                                    {{ item_form.quantity }}
+                                                    {% if item_form.quantity.errors %}<div class="text-danger small">{{ item_form.quantity.errors|striptags }}</div>{% endif %}
+                                                </td>
+                                                <td>
+                                                    {{ item_form.unit_price }}
+                                                    {% if item_form.unit_price.errors %}<div class="text-danger small">{{ item_form.unit_price.errors|striptags }}</div>{% endif %}
+                                                </td>
                                                 <td><span class="badge bg-success row-total">₹0.00</span></td>
                                                 <td><button type="button" class="btn btn-outline-danger btn-sm remove-row">×</button></td>
                                             </tr>
@@ -83,8 +101,8 @@ Create Transaction
                     </div>
 
                     <div class="col-12 d-flex justify-content-end mt-3 gap-2">
-                        <a href="javascript:history.back()" class="btn btn-outline-secondary">Cancel</a>
-                        <button type="submit" class="btn btn-success">Save Transaction</button>
+                        <a href="{% url 'transaction-list' %}" class="btn btn-outline-light">Cancel</a>
+                        <button type="submit" class="btn btn-primary">{% if is_edit %}Update Transaction{% else %}Save Transaction{% endif %}</button>
                     </div>
                 </form>
             </div>
@@ -94,6 +112,10 @@ Create Transaction
 
 <template id="empty-form">
 <tr class="item-row">
+    <td class="d-none">
+        {% if formset.empty_form.id %}{{ formset.empty_form.id }}{% endif %}
+        {% if formset.empty_form.DELETE %}{{ formset.empty_form.DELETE }}{% endif %}
+    </td>
     <td>{{ formset.empty_form.name }}</td>
     <td>{{ formset.empty_form.quantity }}</td>
     <td>{{ formset.empty_form.unit_price }}</td>

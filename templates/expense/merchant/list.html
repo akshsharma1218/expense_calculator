@@ -1,41 +1,55 @@
 {% extends "expense/base.html" %}
 
-{% block title %}
-Merchants
+{% block title %}Merchants — FinFlow{% endblock %}
+
+{% block page_heading %}Merchants{% endblock %}
+
+{% block topbar_actions %}
+<a href="{% url 'merchant-create' %}" class="btn-glow">
+    <i class="bi bi-plus-lg"></i> Add Merchant
+</a>
 {% endblock %}
 
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-4" data-animate>
-    <div>
-        <h2 class="page-title mb-1">Merchants</h2>
-        <p class="text-muted mb-0">Your favorite places to spend, all in one view.</p>
-    </div>
-    <a href="{% url 'merchant-create' %}" class="btn btn-primary">+ Add Merchant</a>
+
+<div class="mb-4" data-animate>
+    <h1 class="page-title">Merchants</h1>
+    <p class="page-subtitle">Track where you spend — stores, restaurants, and more.</p>
 </div>
 
-<div class="card" data-animate>
-    <div class="card-body p-0">
+<div class="glass-card" data-animate>
+    <div class="glass-card-body p-0">
         <div class="table-responsive">
             <table class="table table-hover mb-0">
                 <thead>
-                    <tr><th>Name</th><th>Type</th><th></th></tr>
+                    <tr><th>Name</th><th></th></tr>
                 </thead>
                 <tbody>
                     {% for merchant in merchants %}
                     <tr>
-                        <td>{{ merchant.name }}</td>
-                        <td><span class="badge bg-warning text-dark">Merchant</span></td>
                         <td>
-                            <a href="{% url 'merchant-update' merchant.id %}" class="btn btn-outline-light btn-sm">Edit</a>
-                            <a href="{% url 'merchant-delete' merchant.id %}" class="btn btn-outline-danger btn-sm">Delete</a>
+                            <i class="bi bi-shop me-2" style="color:var(--warning)"></i>
+                            <strong>{{ merchant.name }}</strong>
+                        </td>
+                        <td class="text-end">
+                            <a href="{% url 'merchant-update' merchant.id %}" class="btn btn-sm btn-outline-light">Edit</a>
+                            <a href="{% url 'merchant-delete' merchant.id %}" class="btn btn-sm btn-outline-danger" onclick="return confirm('Delete this merchant?')">Delete</a>
                         </td>
                     </tr>
                     {% empty %}
-                    <tr><td colspan="3" class="text-center py-4">No merchants added yet.</td></tr>
+                    <tr>
+                        <td colspan="2">
+                            <div class="empty-state py-4">
+                                <i class="bi bi-shop"></i>
+                                <p class="text-muted mb-0">No merchants added yet</p>
+                            </div>
+                        </td>
+                    </tr>
                     {% endfor %}
                 </tbody>
             </table>
         </div>
     </div>
 </div>
+
 {% endblock %}

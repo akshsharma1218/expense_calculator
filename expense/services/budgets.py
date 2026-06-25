@@ -2,7 +2,7 @@ from decimal import Decimal
 
 from django.db.models import Sum
 
-from ..models import Transaction
+from ..models import EntryType, Transaction
 from .base import BaseService
 
 
@@ -13,7 +13,7 @@ class BudgetService(BaseService):
             Transaction.objects.filter(
                 user=budget_obj.user,
                 category=budget_obj.category,
-                transaction_type=Transaction.TransactionType.EXPENSE,
+                entry_type=EntryType.DEBIT,
                 transaction_date__month=budget_obj.month,
                 transaction_date__year=budget_obj.year,
                 is_deleted=False,

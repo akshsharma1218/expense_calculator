@@ -1,52 +1,58 @@
 {% extends "expense/base.html" %}
 
-{% block title %}
-Groups
+{% block title %}Groups — FinFlow{% endblock %}
+
+{% block page_heading %}Groups{% endblock %}
+
+{% block topbar_actions %}
+<a href="{% url 'group-create' %}" class="btn-glow">
+    <i class="bi bi-plus-lg"></i> New Group
+</a>
 {% endblock %}
 
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-4" data-animate>
-    <div>
-        <h2 class="page-title mb-1">Groups</h2>
-        <p class="text-muted mb-0">Split shared expenses and settle balances without the chaos.</p>
-    </div>
-    <a href="{% url 'group-create' %}" class="btn btn-primary">+ New Group</a>
+
+<div class="mb-4" data-animate>
+    <h1 class="page-title">Groups</h1>
+    <p class="page-subtitle">Split shared expenses and settle balances effortlessly.</p>
 </div>
 
-<div class="row g-3">
+<div class="row g-4">
     {% for group in groups %}
     <div class="col-lg-6" data-animate>
-        <div class="card h-100">
-            <div class="card-body">
-                <div class="d-flex justify-content-between align-items-start mb-3">
-                    <div>
-                        <h5 class="mb-1">{{ group.name }}</h5>
-                        <p class="text-muted mb-0">{{ group.description|default:"Shared spending group" }}</p>
-                    </div>
-                    <span class="badge bg-info text-dark">{{ group.members.count }} members</span>
+        <div class="glass-card budget-card h-100">
+            <div class="d-flex justify-content-between align-items-start mb-3">
+                <div>
+                    <h5 class="mb-1" style="font-weight:700">
+                        <i class="bi bi-people-fill me-2" style="color:var(--accent)"></i>{{ group.name }}
+                    </h5>
+                    <p class="text-muted mb-0 small">{{ group.description|default:"Shared spending group" }}</p>
                 </div>
+                <span class="budget-status on-track">{{ group.members.count }} members</span>
+            </div>
 
-                <div class="d-flex justify-content-between small text-muted mb-3">
-                    <span>Total shared expense</span>
-                    <span>₹{{ group.total_expense|floatformat:2 }}</span>
-                </div>
+            <div class="d-flex justify-content-between align-items-center mb-3 p-3 rounded-3" style="background:var(--panel)">
+                <span class="text-muted small">Total shared expense</span>
+                <span style="font-weight:700;font-size:1.1rem">₹{{ group.total_expense|floatformat:2 }}</span>
+            </div>
 
-                <div class="d-flex justify-content-end gap-2">
-                    <a href="{% url 'group-detail' group.id %}" class="btn btn-outline-light btn-sm">View</a>
-                </div>
+            <div class="d-flex justify-content-end">
+                <a href="{% url 'group-detail' group.id %}" class="btn btn-sm btn-outline-light">View Details <i class="bi bi-arrow-right ms-1"></i></a>
             </div>
         </div>
     </div>
     {% empty %}
     <div class="col-12" data-animate>
-        <div class="card">
-            <div class="card-body text-center py-5">
+        <div class="glass-card">
+            <div class="empty-state">
+                <i class="bi bi-people"></i>
                 <h5>No groups yet</h5>
                 <p class="text-muted">Create a group to split meals, trips, and shared bills.</p>
-                <a href="{% url 'group-create' %}" class="btn btn-primary">Create Group</a>
+                <a href="{% url 'group-create' %}" class="btn btn-primary mt-2">Create Group</a>
             </div>
         </div>
     </div>
     {% endfor %}
 </div>
+
 {% endblock %}

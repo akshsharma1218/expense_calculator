@@ -1,5 +1,7 @@
 from datetime import date
 from decimal import Decimal
+import json
+from calendar import month_abbr
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
@@ -14,6 +16,7 @@ from django.core.paginator import Paginator
 from .models import (
     Account,
     Category,
+    EntryType,
     Merchant,
     Transaction,
     TransactionItem,
@@ -39,8 +42,52 @@ from .services import (
     DashboardService,
     GroupService,
     SettlementService,
+    ServiceError,
     TransactionService,
+    TransferService,
 )
+
+
+def _collect_transaction_items(formset):
+    items = []
+    total_amount = Decimal("0.00")
+
+    for item_form in formset:
+        if not item_form.cleaned_data:
+            continue
+
+        if item_form.cleaned_data.get("DELETE"):
+            continue
+
+        quantity = item_form.cleaned_data["quantity"]
+        unit_price = item_form.cleaned_data["unit_price"]
+        item_total = quantity * unit_price
+        total_amount += item_total
+
+        items.append({
+            "name": item_form.cleaned_data["name"],
+            "quantity": quantity,
+            "unit_price": unit_price,
+            "total_price": item_total,
+        })
+
+    return items, total_amount
+
+
+def _transaction_fields_from_form(form):
+    return {
+        "category": form.cleaned_data["category"],
+        "merchant": form.cleaned_data.get("merchant"),
+        "transaction_date": form.cleaned_data["transaction_date"],
+        "description": form.cleaned_data["description"],
+        "reference_number": form.cleaned_data["reference_number"],
+    }
+
+
+def _transaction_create_fields_from_form(form):
+    fields = _transaction_fields_from_form(form)
+    fields["account"] = form.cleaned_data["account"]
+    return fields
 
 def signup(request):
 
@@ -85,6 +132,14 @@ def dashboard(request):
 
     today = date.today()
 
+    monthly_trend = DashboardService.monthly_trend(user=request.user)
+    category_breakdown = DashboardService.category_breakdown(
+        user=request.user,
+        month=today.month,
+        year=today.year,
+    )
+    account_distribution = DashboardService.account_distribution(user=request.user)
+
     context = {
         "accounts": Account.objects.filter(
             user=request.user,
@@ -106,6 +161,10 @@ def dashboard(request):
         "recent_transactions": DashboardService.recent_transactions(
             user=request.user
         ),
+        "chart_monthly_trend": json.dumps(monthly_trend),
+        "chart_category_breakdown": json.dumps(category_breakdown),
+        "chart_account_distribution": json.dumps(account_distribution),
+        "current_month_label": f"{month_abbr[today.month]} {today.year}",
     }
 
     context["monthly_savings"] = (
@@ -138,11 +197,24 @@ def account_list(request):
         Decimal("0.00"),
     )
 
+    accounts_data = [
+        {
+            "id": str(account.id),
+            "name": account.name,
+            "type": account.account_type,
+            "opening_balance": float(account.opening_balance),
+            "current_balance": float(account.current_balance),
+            "created": account.created_at.strftime("%d %b %Y"),
+        }
+        for account in accounts
+    ]
+
     return render(
         request,
         "expense/account/list.html",
         {
             "accounts": accounts,
+            "accounts_json": json.dumps(accounts_data),
             "total_balance": total_balance,
         },
     )
@@ -203,6 +275,7 @@ def transaction_list(request):
             "account",
             "category",
             "merchant",
+            "transaction_group",
         )
         .filter(
             user=request.user,
@@ -212,11 +285,16 @@ def transaction_list(request):
             "id",
             "amount",
             "transaction_date",
-            "transaction_type",
+            "entry_type",
             "description",
             "account_id",
             "category_id",
             "merchant_id",
+            "transaction_group_id",
+            "transaction_group__operation_type",
+            "account__name",
+            "category__name",
+            "merchant__name",
         )
         .order_by(
             "-transaction_date",
@@ -224,21 +302,29 @@ def transaction_list(request):
         )
     )
 
-    paginator = Paginator(
-        transactions,
-        50
-    )
-
-    page_obj = paginator.get_page(
-        request.GET.get("page")
-    )
+    transactions_data = [
+        {
+            "id": str(txn.id),
+            "date": txn.transaction_date.isoformat(),
+            "type": txn.entry_type,
+            "operation": txn.transaction_group.operation_type,
+            "category": txn.category.name if txn.category else "—",
+            "merchant": txn.merchant.name if txn.merchant else "—",
+            "account": txn.account.name,
+            "amount": float(txn.amount),
+            "description": txn.description or "",
+            "delete_url": f"/transactions/{txn.id}/delete/",
+            "edit_url": f"/transactions/{txn.id}/edit/",
+        }
+        for txn in transactions
+    ]
 
     return render(
         request,
         "expense/transaction/list.html",
         {
-            "page_obj": page_obj,
-            "transactions": page_obj.object_list,
+            "transactions_json": json.dumps(transactions_data),
+            "transaction_count": len(transactions_data),
         },
     )
 
@@ -255,125 +341,46 @@ def transaction_create(request):
 
         formset = TransactionItemFormSet(
             request.POST,
-            queryset=None,
+            queryset=TransactionItem.objects.none(),
             prefix="items",
         )
 
+        if form.is_valid() and formset.is_valid():
 
-        if (
-            form.is_valid()
-            and
-            formset.is_valid()
-        ):
-
-            items = []
-
-            total_amount = Decimal(
-                "0.00"
-            )
-
-            for item_form in formset:
-
-                if not item_form.cleaned_data:
-                    continue
-
-                if item_form.cleaned_data.get(
-                    "DELETE"
-                ):
-                    continue
-
-                quantity = item_form.cleaned_data[
-                    "quantity"
-                ]
-
-                unit_price = item_form.cleaned_data[
-                    "unit_price"
-                ]
-
-                item_total = (
-                    quantity *
-                    unit_price
-                )
-
-                total_amount += (
-                    item_total
-                )
-
-                items.append({
-                    "name":
-                        item_form.cleaned_data[
-                            "name"
-                        ],
-                    "quantity":
-                        quantity,
-                    "unit_price":
-                        unit_price,
-                    "total_price":
-                        item_total,
-                })
+            items, total_amount = _collect_transaction_items(formset)
 
             if not items:
-
-                messages.error(
-                    request,
-                    "Add at least one item."
-                )
-
+                messages.error(request, "Add at least one item.")
             else:
-
                 try:
-                    TransactionService.create_transaction(
-                        user=request.user,
-                        account=form.cleaned_data[
-                            "account"
-                        ],
-                        category=form.cleaned_data[
-                            "category"
-                        ],
-                        merchant=form.cleaned_data.get(
-                            "merchant"
-                        ),
-                        transfer_account=form.cleaned_data.get(
-                            "transfer_account"
-                        ),
-                        amount=total_amount,
-                        transaction_type=form.cleaned_data[
-                            "transaction_type"
-                        ],
-                        transaction_date=form.cleaned_data[
-                            "transaction_date"
-                        ],
-                        description=form.cleaned_data[
-                            "description"
-                        ],
-                        reference_number=form.cleaned_data[
-                            "reference_number"
-                        ],
-                        tags=form.cleaned_data[
-                            "tags"
-                        ],
-                        items=items,
-                    )
-                except ValueError as exc:
-                    messages.error(
-                        request,
-                        str(exc),
-                    )
+                    to_account = form.cleaned_data.get("to_account")
+                    shared = {
+                        "user": request.user,
+                        "amount": total_amount,
+                        "tags": form.cleaned_data["tags"],
+                        **_transaction_create_fields_from_form(form),
+                    }
+                    if to_account:
+                        TransferService.create_transfer(
+                            to_account=to_account,
+                            from_account=form.cleaned_data["account"],
+                            items=items,
+                            **shared,
+                        )
+                    else:
+                        TransactionService.create_transaction(
+                            items=items,
+                            **shared,
+                        )
+                except ServiceError as exc:
+                    messages.error(request, str(exc))
                 else:
-                    messages.success(
-                        request,
-                        "Transaction created."
-                    )
-
-                    return redirect(
-                        "transaction-list"
-                    )
+                    messages.success(request, "Transaction created.")
+                    return redirect("transaction-list")
 
     else:
 
-        form = TransactionForm(
-            user=request.user
-        )
+        form = TransactionForm(user=request.user)
 
         formset = TransactionItemFormSet(
             queryset=TransactionItem.objects.none(),
@@ -386,6 +393,75 @@ def transaction_create(request):
         {
             "form": form,
             "formset": formset,
+            "is_edit": False,
+        },
+    )
+
+
+@login_required
+def transaction_update(request, pk):
+
+    transaction = get_object_or_404(
+        Transaction,
+        pk=pk,
+        user=request.user,
+        is_deleted=False,
+    )
+
+    if request.method == "POST":
+
+        form = TransactionForm(
+            request.POST,
+            instance=transaction,
+            user=request.user,
+        )
+
+        formset = TransactionItemFormSet(
+            request.POST,
+            queryset=transaction.items.all(),
+            prefix="items",
+        )
+
+        if form.is_valid() and formset.is_valid():
+
+            items, _total_amount = _collect_transaction_items(formset)
+
+            if not items:
+                messages.error(request, "Add at least one item.")
+            else:
+                try:
+                    TransactionService.update_transaction(
+                        transaction_obj=transaction,
+                        items=items,
+                        tags=form.cleaned_data["tags"],
+                        **_transaction_fields_from_form(form),
+                    )
+                except ServiceError as exc:
+                    messages.error(request, str(exc))
+                else:
+                    messages.success(request, "Transaction updated.")
+                    return redirect("transaction-list")
+
+    else:
+
+        form = TransactionForm(
+            instance=transaction,
+            user=request.user,
+        )
+
+        formset = TransactionItemFormSet(
+            queryset=transaction.items.all(),
+            prefix="items",
+        )
+
+    return render(
+        request,
+        "expense/transaction/form.html",
+        {
+            "form": form,
+            "formset": formset,
+            "transaction": transaction,
+            "is_edit": True,
         },
     )
 
@@ -461,7 +537,7 @@ def budget_detail(request, pk):
         Transaction.objects.filter(
             user=request.user,
             category=budget.category,
-            transaction_type=Transaction.TransactionType.EXPENSE,
+            entry_type=EntryType.DEBIT,
             transaction_date__month=budget.month,
             transaction_date__year=budget.year,
             is_deleted=False,
@@ -726,11 +802,11 @@ def settlement_create(
 @login_required
 def monthly_report(request):
 
-    data = (
+    data = list(
         Transaction.objects
         .filter(
             user=request.user,
-            transaction_type=Transaction.TransactionType.EXPENSE,
+            entry_type=EntryType.DEBIT,
             is_deleted=False,
         )
         .values(
@@ -741,6 +817,14 @@ def monthly_report(request):
         )
         .order_by("-total")
     )
+
+    chart_data = [
+        {
+            "name": item["category__name"] or "Uncategorized",
+            "total": float(item["total"] or 0),
+        }
+        for item in data
+    ]
 
     return render(
         request,
@@ -748,6 +832,7 @@ def monthly_report(request):
         {
             "data": data,
             "total_expense": sum(item["total"] for item in data),
+            "chart_data": json.dumps(chart_data),
         },
     )
 
@@ -755,11 +840,11 @@ def monthly_report(request):
 @login_required
 def category_report(request):
 
-    categories = (
+    categories = list(
         Transaction.objects
         .filter(
             user=request.user,
-            transaction_type=Transaction.TransactionType.EXPENSE,
+            entry_type=EntryType.DEBIT,
             is_deleted=False,
         )
         .values(
@@ -771,12 +856,21 @@ def category_report(request):
         .order_by("-total")
     )
 
+    chart_data = [
+        {
+            "name": item["category__name"] or "Uncategorized",
+            "total": float(item["total"] or 0),
+        }
+        for item in categories
+    ]
+
     return render(
         request,
         "expense/reports/category.html",
         {
             "categories": categories,
             "total_expense": sum(item["total"] for item in categories),
+            "chart_data": json.dumps(chart_data),
         },
     )
 

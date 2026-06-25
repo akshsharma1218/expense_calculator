@@ -11,6 +11,11 @@ from django.utils import timezone
 User = settings.AUTH_USER_MODEL
 
 
+class EntryType(models.TextChoices):
+    DEBIT = "debit", "Debit"
+    CREDIT = "credit", "Credit"
+
+
 # ============================================================
 # Base Model
 # ============================================================
@@ -79,33 +84,15 @@ class Account(BaseModel):
     def __str__(self):
         return self.name
 
-    def credit(self, amount):
-        self.current_balance += Decimal(amount)
-        self.save(update_fields=["current_balance"])
-
-    def debit(self, amount):
-        self.current_balance -= Decimal(amount)
-        self.save(update_fields=["current_balance"])
-
     @property
     def calculated_balance(self):
-        income = (
-            self.transactions.filter(
-                transaction_type=Transaction.TransactionType.INCOME,
-                is_deleted=False
-            ).aggregate(total=Sum("amount"))["total"]
-            or Decimal("0.00")
-        )
-
-        expense = (
-            self.transactions.filter(
-                transaction_type=Transaction.TransactionType.EXPENSE,
-                is_deleted=False
-            ).aggregate(total=Sum("amount"))["total"]
-            or Decimal("0.00")
-        )
-
-        return self.opening_balance + income - expense
+        balance = self.opening_balance
+        for entry in self.ledger_entries.order_by("created_at", "id"):
+            if entry.entry_type == EntryType.CREDIT:
+                balance += entry.amount
+            else:
+                balance -= entry.amount
+        return balance
 
 
 # ============================================================
@@ -117,6 +104,7 @@ class Category(BaseModel):
     class CategoryType(models.TextChoices):
         INCOME = "income", "Income"
         EXPENSE = "expense", "Expense"
+        REFUND = "refund", "Refund"
 
     id = models.UUIDField(
         primary_key=True,
@@ -129,6 +117,12 @@ class Category(BaseModel):
     category_type = models.CharField(
         max_length=10,
         choices=CategoryType.choices
+    )
+
+    normal_side = models.CharField(
+        max_length=10,
+        choices=EntryType.choices,
+        default=EntryType.DEBIT,
     )
 
     parent = models.ForeignKey(
@@ -161,13 +155,26 @@ class Category(BaseModel):
             models.UniqueConstraint(
                 fields=["name", "created_by"],
                 name="uq_category_name_creator"
-            )
+            ),
+            models.CheckConstraint(
+                condition=models.Q(normal_side__in=EntryType.values),
+                name="category_normal_side_valid",
+            ),
         ]
 
         indexes = [
             models.Index(fields=["parent"]),
             models.Index(fields=["category_type"]),
+            models.Index(fields=["normal_side"]),
         ]
+
+    def save(self, *args, **kwargs):
+        if not self.normal_side:
+            if self.category_type == self.CategoryType.EXPENSE:
+                self.normal_side = EntryType.DEBIT
+            else:
+                self.normal_side = EntryType.CREDIT
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return self.name
@@ -252,16 +259,50 @@ class Tag(BaseModel):
 
 
 # ============================================================
-# Transaction
+# Transaction Group (business operation)
 # ============================================================
 
-class Transaction(BaseModel):
+class TransactionGroup(BaseModel):
 
-    class TransactionType(models.TextChoices):
+    class OperationType(models.TextChoices):
         INCOME = "income", "Income"
         EXPENSE = "expense", "Expense"
         TRANSFER = "transfer", "Transfer"
         REFUND = "refund", "Refund"
+
+    id = models.UUIDField(
+        primary_key=True,
+        default=uuid.uuid4,
+        editable=False,
+    )
+
+    operation_type = models.CharField(
+        max_length=20,
+        choices=OperationType.choices,
+    )
+
+    created_by = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="transaction_groups",
+    )
+
+    class Meta:
+        db_table = "transaction_group"
+        indexes = [
+            models.Index(fields=["created_by", "-created_at"]),
+            models.Index(fields=["operation_type"]),
+        ]
+
+    def __str__(self):
+        return f"{self.operation_type} ({self.id})"
+
+
+# ============================================================
+# Transaction
+# ============================================================
+
+class Transaction(BaseModel):
 
     class TransactionStatus(models.TextChoices):
         PENDING = "pending", "Pending"
@@ -285,18 +326,16 @@ class Transaction(BaseModel):
         related_name="transactions"
     )
 
+    transaction_group = models.ForeignKey(
+        TransactionGroup,
+        on_delete=models.PROTECT,
+        related_name="transactions",
+    )
+
     account = models.ForeignKey(
         Account,
         on_delete=models.PROTECT,
         related_name="transactions"
-    )
-
-    transfer_account = models.ForeignKey(
-        "Account",
-        null=True,
-        blank=True,
-        on_delete=models.PROTECT,
-        related_name="incoming_transfers"
     )
 
     category = models.ForeignKey(
@@ -315,12 +354,13 @@ class Transaction(BaseModel):
 
     amount = models.DecimalField(
         max_digits=15,
-        decimal_places=2
+        decimal_places=2,
     )
 
-    transaction_type = models.CharField(
-        max_length=20,
-        choices=TransactionType.choices
+    entry_type = models.CharField(
+        max_length=10,
+        choices=EntryType.choices,
+        default=EntryType.DEBIT,
     )
 
     transaction_date = models.DateField(
@@ -364,12 +404,26 @@ class Transaction(BaseModel):
                 fields=["merchant", "transaction_date"]
             ),
             models.Index(
-                fields=["transaction_type"]
+                fields=["entry_type"]
+            ),
+            models.Index(
+                fields=["transaction_group"]
+            ),
+        ]
+
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(amount__gt=0),
+                name="transaction_amount_positive",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(entry_type__in=EntryType.values),
+                name="transaction_entry_type_valid",
             ),
         ]
 
     def __str__(self):
-        return f"{self.transaction_type} - {self.amount}"
+        return f"{self.entry_type} - {self.amount}"
 
 
 # ============================================================
@@ -473,10 +527,6 @@ class Attachment(BaseModel):
 
 class LedgerEntry(BaseModel):
 
-    class EntryType(models.TextChoices):
-        CREDIT = "credit", "Credit"
-        DEBIT = "debit", "Debit"
-
     id = models.UUIDField(
         primary_key=True,
         default=uuid.uuid4,
@@ -511,13 +561,34 @@ class LedgerEntry(BaseModel):
         default=0
     )
 
+    is_reversal = models.BooleanField(default=False)
+    reversal_of = models.ForeignKey(
+        "self",
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="reversed_by",
+    )
+
     class Meta:
         db_table = "ledger_entry"
 
         indexes = [
             models.Index(fields=["account"]),
             models.Index(fields=["transaction"]),
+            models.Index(fields=["transaction", "is_reversal"]),
             models.Index(fields=["account", "-created_at"]),
+        ]
+
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(amount__gt=0),
+                name="ledger_entry_amount_positive",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(entry_type__in=EntryType.values),
+                name="ledger_entry_entry_type_valid",
+            ),
         ]
 
 

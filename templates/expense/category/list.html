@@ -1,20 +1,24 @@
 {% extends "expense/base.html" %}
 
-{% block title %}
-Categories
+{% block title %}Categories — FinFlow{% endblock %}
+
+{% block page_heading %}Categories{% endblock %}
+
+{% block topbar_actions %}
+<a href="{% url 'category-create' %}" class="btn-glow">
+    <i class="bi bi-plus-lg"></i> Add Category
+</a>
 {% endblock %}
 
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-4" data-animate>
-    <div>
-        <h2 class="page-title mb-1">Categories</h2>
-        <p class="text-muted mb-0">Sort your spending into vibes that actually make sense.</p>
-    </div>
-    <a href="{% url 'category-create' %}" class="btn btn-primary">+ Add Category</a>
+
+<div class="mb-4" data-animate>
+    <h1 class="page-title">Categories</h1>
+    <p class="page-subtitle">Organize your spending into meaningful groups.</p>
 </div>
 
-<div class="card" data-animate>
-    <div class="card-body p-0">
+<div class="glass-card" data-animate>
+    <div class="glass-card-body p-0">
         <div class="table-responsive">
             <table class="table table-hover mb-0">
                 <thead>
@@ -23,19 +27,33 @@ Categories
                 <tbody>
                     {% for category in categories %}
                     <tr>
-                        <td>{{ category.name }}</td>
-                        <td><span class="badge bg-info text-dark">{{ category.category_type }}</span></td>
+                        <td><strong>{{ category.name }}</strong></td>
                         <td>
-                            <a href="{% url 'category-update' category.id %}" class="btn btn-outline-light btn-sm">Edit</a>
-                            <a href="{% url 'category-delete' category.id %}" class="btn btn-outline-danger btn-sm">Delete</a>
+                            {% if category.category_type == "income" %}
+                                <span class="badge badge-income">{{ category.category_type }}</span>
+                            {% else %}
+                                <span class="badge badge-expense">{{ category.category_type }}</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-end">
+                            <a href="{% url 'category-update' category.id %}" class="btn btn-sm btn-outline-light">Edit</a>
+                            <a href="{% url 'category-delete' category.id %}" class="btn btn-sm btn-outline-danger" onclick="return confirm('Delete this category?')">Delete</a>
                         </td>
                     </tr>
                     {% empty %}
-                    <tr><td colspan="3" class="text-center py-4">No categories yet.</td></tr>
+                    <tr>
+                        <td colspan="3">
+                            <div class="empty-state py-4">
+                                <i class="bi bi-tags"></i>
+                                <p class="text-muted mb-0">No categories yet</p>
+                            </div>
+                        </td>
+                    </tr>
                     {% endfor %}
                 </tbody>
             </table>
         </div>
     </div>
 </div>
+
 {% endblock %}

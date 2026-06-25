@@ -43,6 +43,12 @@ urlpatterns = [
     ),
 
     path(
+        "transactions/<uuid:pk>/edit/",
+        views.transaction_update,
+        name="transaction-update",
+    ),
+
+    path(
         "transactions/<uuid:pk>/delete/",
         views.transaction_delete,
         name="transaction-delete",

@@ -1,67 +1,69 @@
 {% extends "expense/base.html" %}
 
-{% block title %}
-Budgets
+{% block title %}Budgets — FinFlow{% endblock %}
+
+{% block page_heading %}Budgets{% endblock %}
+
+{% block topbar_actions %}
+<a href="{% url 'budget-create' %}" class="btn-glow">
+    <i class="bi bi-plus-lg"></i> New Budget
+</a>
 {% endblock %}
 
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-4">
-    <div>
-        <h2 class="mb-0">Budgets</h2>
-        <p class="text-muted mb-0">Track your monthly spending limits and stay in control.</p>
-    </div>
-    <a href="{% url 'budget-create' %}" class="btn btn-primary">+ New Budget</a>
+
+<div class="mb-4" data-animate>
+    <h1 class="page-title">Budgets</h1>
+    <p class="page-subtitle">Set limits and track spending against your goals.</p>
 </div>
 
-<div class="row g-3">
+<div class="row g-4">
     {% for item in budgets %}
-    <div class="col-lg-6">
-        <div class="card shadow-sm h-100">
-            <div class="card-body">
-                <div class="d-flex justify-content-between align-items-start mb-3">
-                    <div>
-                        <h5 class="mb-1">{{ item.budget.category.name }}</h5>
-                        <p class="text-muted mb-0">{{ item.budget.month }}/{{ item.budget.year }}</p>
-                    </div>
-                    <div class="text-end">
-                        <span class="badge {% if item.is_over_budget %}bg-danger{% else %}bg-success{% endif %}">
-                            {% if item.is_over_budget %}Over Budget{% else %}On Track{% endif %}
-                        </span>
-                    </div>
+    <div class="col-lg-6" data-animate>
+        <div class="glass-card budget-card h-100">
+            <div class="d-flex justify-content-between align-items-start mb-3">
+                <div>
+                    <h5 class="mb-1" style="font-weight:700">{{ item.budget.category.name }}</h5>
+                    <p class="text-muted mb-0 small">{{ item.budget.month }}/{{ item.budget.year }}</p>
                 </div>
+                <span class="budget-status {% if item.is_over_budget %}over{% else %}on-track{% endif %}">
+                    {% if item.is_over_budget %}Over Budget{% else %}On Track{% endif %}
+                </span>
+            </div>
 
-                <div class="mb-3">
-                    <div class="d-flex justify-content-between small text-muted mb-1">
-                        <span>Spent</span>
-                        <span>₹{{ item.spent|floatformat:2 }}</span>
-                    </div>
-                    <div class="progress" style="height: 10px;">
-                        <div class="progress-bar {% if item.is_over_budget %}bg-danger{% else %}bg-primary{% endif %}" role="progressbar" style="width: {{ item.percentage_used|floatformat:0 }}%;"></div>
-                    </div>
-                    <div class="d-flex justify-content-between small text-muted mt-1">
-                        <span>Budget: ₹{{ item.budget_amount|floatformat:2 }}</span>
-                        <span>Remaining: ₹{{ item.remaining|floatformat:2 }}</span>
-                    </div>
+            <div class="mb-3">
+                <div class="d-flex justify-content-between small mb-2">
+                    <span class="text-muted">Spent</span>
+                    <span style="font-weight:600">₹{{ item.spent|floatformat:2 }} <span class="text-muted">/ ₹{{ item.budget_amount|floatformat:2 }}</span></span>
                 </div>
+                <div class="progress" style="height:8px">
+                    <div class="progress-bar" style="width:{{ item.percentage_used|floatformat:0 }}%;background:{% if item.is_over_budget %}linear-gradient(90deg,var(--danger),#fca5a5){% else %}linear-gradient(90deg,var(--accent),var(--accent-2)){% endif %}"></div>
+                </div>
+                <div class="d-flex justify-content-between small text-muted mt-2">
+                    <span>{{ item.percentage_used|floatformat:0 }}% used</span>
+                    <span>₹{{ item.remaining|floatformat:2 }} remaining</span>
+                </div>
+            </div>
 
-                <div class="d-flex justify-content-end gap-2">
-                    <a href="{% url 'budget-detail' item.budget.id %}" class="btn btn-outline-primary btn-sm">View</a>
-                    <a href="{% url 'budget-update' item.budget.id %}" class="btn btn-outline-secondary btn-sm">Edit</a>
-                    <a href="{% url 'budget-delete' item.budget.id %}" class="btn btn-outline-danger btn-sm">Delete</a>
-                </div>
+            <div class="d-flex justify-content-end gap-2">
+                <a href="{% url 'budget-detail' item.budget.id %}" class="btn btn-sm btn-outline-light">View</a>
+                <a href="{% url 'budget-update' item.budget.id %}" class="btn btn-sm btn-outline-light">Edit</a>
+                <a href="{% url 'budget-delete' item.budget.id %}" class="btn btn-sm btn-outline-danger" onclick="return confirm('Delete this budget?')">Delete</a>
             </div>
         </div>
     </div>
     {% empty %}
-    <div class="col-12">
-        <div class="card shadow-sm">
-            <div class="card-body text-center py-5">
+    <div class="col-12" data-animate>
+        <div class="glass-card">
+            <div class="empty-state">
+                <i class="bi bi-pie-chart"></i>
                 <h5>No budgets yet</h5>
                 <p class="text-muted">Set a budget for each category to monitor your spending.</p>
-                <a href="{% url 'budget-create' %}" class="btn btn-primary">Create Budget</a>
+                <a href="{% url 'budget-create' %}" class="btn btn-primary mt-2">Create Budget</a>
             </div>
         </div>
     </div>
     {% endfor %}
 </div>
+
 {% endblock %}

@@ -1,83 +1,83 @@
 {% extends "expense/base.html" %}
 
-{% block title %}
-Budget Detail
-{% endblock %}
+{% block title %}Budget Detail — FinFlow{% endblock %}
+{% block page_heading %}Budget Detail{% endblock %}
 
 {% block content %}
 <div class="row g-4">
-    <div class="col-lg-8">
-        <div class="card shadow-sm">
-            <div class="card-body">
-                <div class="d-flex justify-content-between align-items-start mb-3">
+    <div class="col-lg-8" data-animate>
+        <div class="glass-card">
+            <div class="glass-card-body">
+                <div class="d-flex justify-content-between align-items-start mb-4">
                     <div>
-                        <h3 class="mb-1">{{ budget.category.name }}</h3>
+                        <h2 class="page-title mb-1">{{ budget.category.name }}</h2>
                         <p class="text-muted mb-0">{{ budget.month }}/{{ budget.year }}</p>
                     </div>
-                    <span class="badge {% if status.is_over_budget %}bg-danger{% else %}bg-success{% endif %}">
+                    <span class="budget-status {% if status.is_over_budget %}over{% else %}on-track{% endif %}">
                         {% if status.is_over_budget %}Over Budget{% else %}On Track{% endif %}
                     </span>
                 </div>
 
-                <div class="row g-3 mb-3">
-                    <div class="col-md-4">
-                        <div class="border rounded p-3">
-                            <div class="text-muted small">Budget</div>
-                            <div class="fw-bold">₹{{ status.budget_amount|floatformat:2 }}</div>
-                        </div>
+                <div class="kpi-grid mb-4" style="grid-template-columns: repeat(3, 1fr);">
+                    <div class="kpi-card kpi-balance" style="padding:16px">
+                        <div class="kpi-label">Budget</div>
+                        <div class="kpi-value" style="font-size:1.2rem">₹{{ status.budget_amount|floatformat:2 }}</div>
                     </div>
-                    <div class="col-md-4">
-                        <div class="border rounded p-3">
-                            <div class="text-muted small">Spent</div>
-                            <div class="fw-bold text-danger">₹{{ status.spent|floatformat:2 }}</div>
-                        </div>
+                    <div class="kpi-card kpi-expense" style="padding:16px">
+                        <div class="kpi-label">Spent</div>
+                        <div class="kpi-value" style="font-size:1.2rem;color:var(--danger)">₹{{ status.spent|floatformat:2 }}</div>
                     </div>
-                    <div class="col-md-4">
-                        <div class="border rounded p-3">
-                            <div class="text-muted small">Remaining</div>
-                            <div class="fw-bold text-success">₹{{ status.remaining|floatformat:2 }}</div>
-                        </div>
+                    <div class="kpi-card kpi-income" style="padding:16px">
+                        <div class="kpi-label">Remaining</div>
+                        <div class="kpi-value" style="font-size:1.2rem;color:var(--success)">₹{{ status.remaining|floatformat:2 }}</div>
                     </div>
                 </div>
 
-                <div class="mb-3">
-                    <div class="d-flex justify-content-between small text-muted mb-1">
-                        <span>Usage</span>
-                        <span>{{ status.percentage_used|floatformat:1 }}%</span>
+                <div class="mb-4">
+                    <div class="d-flex justify-content-between small mb-2">
+                        <span class="text-muted">Usage</span>
+                        <span style="font-weight:600">{{ status.percentage_used|floatformat:1 }}%</span>
                     </div>
-                    <div class="progress" style="height: 10px;">
-                        <div class="progress-bar {% if status.is_over_budget %}bg-danger{% else %}bg-primary{% endif %}" role="progressbar" style="width: {{ status.percentage_used|floatformat:0 }}%;"></div>
+                    <div class="progress" style="height:8px">
+                        <div class="progress-bar" style="width:{{ status.percentage_used|floatformat:0 }}%;background:{% if status.is_over_budget %}linear-gradient(90deg,var(--danger),#fca5a5){% else %}linear-gradient(90deg,var(--accent),var(--accent-2)){% endif %}"></div>
                     </div>
                 </div>
 
                 <div class="d-flex gap-2">
-                    <a href="{% url 'budget-update' budget.id %}" class="btn btn-outline-secondary btn-sm">Edit</a>
-                    <a href="{% url 'budget-delete' budget.id %}" class="btn btn-outline-danger btn-sm">Delete</a>
+                    <a href="{% url 'budget-update' budget.id %}" class="btn btn-outline-light btn-sm">Edit</a>
+                    <a href="{% url 'budget-delete' budget.id %}" class="btn btn-outline-danger btn-sm" onclick="return confirm('Delete this budget?')">Delete</a>
+                    <a href="{% url 'budget-list' %}" class="btn btn-outline-light btn-sm ms-auto">Back to Budgets</a>
                 </div>
             </div>
         </div>
     </div>
 
-    <div class="col-lg-4">
-        <div class="card shadow-sm">
-            <div class="card-body">
-                <h5 class="mb-3">Recent Expenses</h5>
+    <div class="col-lg-4" data-animate>
+        <div class="glass-card h-100">
+            <div class="glass-card-header">
+                <strong>Recent Expenses</strong>
+            </div>
+            <div class="glass-card-body p-0">
                 {% if transactions %}
-                    <ul class="list-group list-group-flush">
-                        {% for txn in transactions %}
-                        <li class="list-group-item px-0">
-                            <div class="d-flex justify-content-between align-items-center">
-                                <div>
-                                    <div class="fw-semibold">{{ txn.description|default:"Expense" }}</div>
-                                    <div class="small text-muted">{{ txn.transaction_date }} • {{ txn.account.name }}</div>
-                                </div>
-                                <div class="text-danger fw-semibold">₹{{ txn.amount }}</div>
-                            </div>
-                        </li>
-                        {% endfor %}
-                    </ul>
+                <div class="table-responsive">
+                    <table class="table mb-0">
+                        <tbody>
+                            {% for txn in transactions %}
+                            <tr>
+                                <td>
+                                    <div style="font-weight:600">{{ txn.description|default:"Expense" }}</div>
+                                    <div class="small text-muted">{{ txn.transaction_date }} · {{ txn.account.name }}</div>
+                                </td>
+                                <td class="text-end" style="color:var(--danger);font-weight:600">₹{{ txn.amount }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
                 {% else %}
-                    <p class="text-muted mb-0">No spending has been recorded for this budget yet.</p>
+                <div class="empty-state py-4">
+                    <p class="text-muted mb-0 small">No spending recorded yet</p>
+                </div>
                 {% endif %}
             </div>
         </div>

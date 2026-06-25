@@ -17,38 +17,70 @@ document.addEventListener("DOMContentLoaded", function () {
     });
 
     tbody.addEventListener("click", function (e) {
-        if (e.target.classList.contains("remove-row")) {
-            const rows = tbody.querySelectorAll(".item-row");
-            if (rows.length === 1) {
-                alert("At least one item is required.");
-                return;
-            }
-            e.target.closest(".item-row").remove();
-            reindexForms();
-            calculateTotal();
+        if (!e.target.classList.contains("remove-row")) {
+            return;
         }
+
+        const activeRows = getActiveRows();
+        if (activeRows.length === 1) {
+            alert("At least one item is required.");
+            return;
+        }
+
+        const row = e.target.closest(".item-row");
+        const deleteInput = row.querySelector('[name$="-DELETE"]');
+        const idInput = row.querySelector('[name$="-id"]');
+
+        if (idInput && idInput.value) {
+            if (deleteInput) {
+                deleteInput.checked = true;
+            }
+            row.classList.add("marked-delete");
+            row.style.display = "none";
+        } else {
+            row.remove();
+            reindexForms();
+        }
+
+        calculateTotal();
     });
 
     tbody.addEventListener("input", calculateTotal);
 
+    function getActiveRows() {
+        return Array.from(tbody.querySelectorAll(".item-row")).filter(
+            (row) => !row.classList.contains("marked-delete")
+        );
+    }
+
     function calculateTotal() {
         let grandTotal = 0;
-        document.querySelectorAll(".item-row").forEach(row => {
+        getActiveRows().forEach((row) => {
             const qty = parseFloat(row.querySelector('[name$="quantity"]')?.value) || 0;
             const price = parseFloat(row.querySelector('[name$="unit_price"]')?.value) || 0;
             const total = qty * price;
-            row.querySelector(".row-total").innerText = "₹" + total.toFixed(2);
+            const totalEl = row.querySelector(".row-total");
+            if (totalEl) {
+                totalEl.innerText = "₹" + total.toFixed(2);
+            }
             grandTotal += total;
         });
-        document.getElementById("grand-total").innerText = grandTotal.toFixed(2);
+        const grandTotalEl = document.getElementById("grand-total");
+        if (grandTotalEl) {
+            grandTotalEl.innerText = grandTotal.toFixed(2);
+        }
     }
 
     function reindexForms() {
         const rows = tbody.querySelectorAll(".item-row");
         rows.forEach((row, index) => {
-            row.querySelectorAll("input, select, textarea").forEach(field => {
-                if (field.name) field.name = field.name.replace(/items-\d+-/, `items-${index}-`);
-                if (field.id) field.id = field.id.replace(/id_items-\d+-/, `id_items-${index}-`);
+            row.querySelectorAll("input, select, textarea").forEach((field) => {
+                if (field.name) {
+                    field.name = field.name.replace(/items-\d+-/, `items-${index}-`);
+                }
+                if (field.id) {
+                    field.id = field.id.replace(/id_items-\d+-/, `id_items-${index}-`);
+                }
             });
         });
         totalForms.value = rows.length;

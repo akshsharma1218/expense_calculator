@@ -9,9 +9,11 @@ from django.core.exceptions import ValidationError
 from .models import (
     Account,
     Category,
+    EntryType,
     Merchant,
     Tag,
     Transaction,
+    TransactionGroup,
     TransactionItem,
     Budget,
     ExpenseGroup,
@@ -62,6 +64,7 @@ class CategoryForm(forms.ModelForm):
         fields = [
             "name",
             "category_type",
+            "normal_side",
             "parent",
             "icon",
         ]
@@ -71,6 +74,9 @@ class CategoryForm(forms.ModelForm):
                 attrs={"class": "form-control"}
             ),
             "category_type": forms.Select(
+                attrs={"class": "form-select"}
+            ),
+            "normal_side": forms.Select(
                 attrs={"class": "form-select"}
             ),
             "parent": forms.Select(
@@ -127,17 +133,20 @@ class TagForm(forms.ModelForm):
 # ============================================================
 
 class TransactionForm(forms.ModelForm):
+    to_account = forms.ModelChoiceField(
+        queryset=Account.objects.none(),
+        required=False,
+        label="Transfer to account",
+        widget=forms.Select(attrs={"class": "form-select"}),
+    )
 
     class Meta:
         model = Transaction
 
         fields = [
             "account",
-            "transfer_account",
             "category",
             "merchant",
-            "amount",
-            "transaction_type",
             "transaction_date",
             "description",
             "reference_number",
@@ -148,22 +157,10 @@ class TransactionForm(forms.ModelForm):
             "account": forms.Select(
                 attrs={"class": "form-select"}
             ),
-            "transfer_account": forms.Select(
-                attrs={"class": "form-select"}
-            ),
             "category": forms.Select(
                 attrs={"class": "form-select"}
             ),
             "merchant": forms.Select(
-                attrs={"class": "form-select"}
-            ),
-            "amount": forms.NumberInput(
-                attrs={
-                    "class": "form-control",
-                    "step": "0.01",
-                }
-            ),
-            "transaction_type": forms.Select(
                 attrs={"class": "form-select"}
             ),
             "transaction_date": forms.DateInput(
@@ -196,19 +193,13 @@ class TransactionForm(forms.ModelForm):
 
         if user:
 
-            self.fields[
-                "account"
-            ].queryset = Account.objects.filter(
+            account_qs = Account.objects.filter(
                 user=user,
                 is_active=True,
             )
 
-            self.fields[
-                "transfer_account"
-            ].queryset = Account.objects.filter(
-                user=user,
-                is_active=True,
-            )
+            self.fields["account"].queryset = account_qs
+            self.fields["to_account"].queryset = account_qs
 
             self.fields[
                 "tags"
@@ -232,38 +223,23 @@ class TransactionForm(forms.ModelForm):
                 created_by=user
             )
 
+        if self.instance and self.instance.pk:
+            for field_name in ("account", "to_account"):
+                if field_name in self.fields:
+                    del self.fields[field_name]
+
     def clean(self):
 
         cleaned_data = super().clean()
 
-        txn_type = cleaned_data.get(
-            "transaction_type"
-        )
+        to_account = cleaned_data.get("to_account")
+        account = cleaned_data.get("account")
 
-        transfer_account = cleaned_data.get(
-            "transfer_account"
-        )
+        if to_account and account and account == to_account:
 
-        account = cleaned_data.get(
-            "account"
-        )
-
-        if (
-            txn_type
-            == Transaction.TransactionType.TRANSFER
-        ):
-
-            if not transfer_account:
-
-                raise ValidationError(
-                    "Transfer account is required."
-                )
-
-            if account == transfer_account:
-
-                raise ValidationError(
-                    "Cannot transfer to same account."
-                )
+            raise ValidationError(
+                "Cannot transfer to the same account."
+            )
 
         return cleaned_data
 
@@ -354,13 +330,17 @@ class BudgetForm(forms.ModelForm):
 
             self.fields[
                 "category"
-            ].queryset = Category.objects.filter(
-                category_type=Category.CategoryType.EXPENSE
-            ).filter(
-                is_system=True
-            ) | Category.objects.filter(
-                created_by=user,
-                category_type=Category.CategoryType.EXPENSE,
+            ].queryset = (
+                Category.objects.filter(
+                    category_type=Category.CategoryType.EXPENSE,
+                    normal_side=EntryType.DEBIT,
+                    is_system=True,
+                )
+                | Category.objects.filter(
+                    created_by=user,
+                    category_type=Category.CategoryType.EXPENSE,
+                    normal_side=EntryType.DEBIT,
+                )
             )
 
 
