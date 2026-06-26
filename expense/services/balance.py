@@ -1,36 +1,67 @@
 from django.db.models import F
 
 from ..models import Account, EntryType
-from .base import BaseService
+from .base import BaseService, ServiceError
 
 
 class BalanceService(BaseService):
-    @staticmethod
-    def lock_account(account_id):
-        return Account.objects.select_for_update().get(pk=account_id)
 
     @staticmethod
-    def credit(*, account, amount):
-        amount = BalanceService._to_decimal(amount)
-        BalanceService.lock_account(account.pk)
-        Account.objects.filter(pk=account.pk).update(
+    def validate_account(account: Account):
+        if account.is_deleted:
+            raise ServiceError("Account has been deleted.")
+
+        if not account.is_active:
+            raise ServiceError("Account is inactive.")
+
+    @staticmethod
+    def credit(*, account: Account, amount):
+        BalanceService.validate_account(account)
+
+        Account.objects.filter(
+            pk=account.pk
+        ).update(
             current_balance=F("current_balance") + amount
         )
-        account.refresh_from_db(fields=["current_balance"])
-        return account
+
 
     @staticmethod
-    def debit(*, account, amount):
-        amount = BalanceService._to_decimal(amount)
-        BalanceService.lock_account(account.pk)
-        Account.objects.filter(pk=account.pk).update(
+    def debit(*, account: Account, amount):
+        BalanceService.validate_account(account)
+
+        Account.objects.filter(
+            pk=account.pk
+        ).update(
             current_balance=F("current_balance") - amount
         )
-        account.refresh_from_db(fields=["current_balance"])
-        return account
+
 
     @staticmethod
-    def apply_entry(*, account, entry_type, amount):
+    def apply(*, account: Account, entry_type: str, amount):
         if entry_type == EntryType.CREDIT:
-            return BalanceService.credit(account=account, amount=amount)
-        return BalanceService.debit(account=account, amount=amount)
+            BalanceService.credit(
+                account=account,
+                amount=amount,
+            )
+        elif entry_type == EntryType.DEBIT:
+            BalanceService.debit(
+                account=account,
+                amount=amount,
+            )
+        else:
+            raise ServiceError("Invalid entry type.")
+
+    @staticmethod
+    def reverse(*, account: Account, entry_type: str, amount):
+        if entry_type == EntryType.CREDIT:
+            BalanceService.debit(
+                account=account,
+                amount=amount,
+            )
+        elif entry_type == EntryType.DEBIT:
+            BalanceService.credit(
+                account=account,
+                amount=amount,
+            )
+        else:
+            raise ServiceError("Invalid entry type.")

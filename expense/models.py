@@ -105,6 +105,7 @@ class Category(BaseModel):
         INCOME = "income", "Income"
         EXPENSE = "expense", "Expense"
         REFUND = "refund", "Refund"
+        TRANSFER = "transfer", "Transfer"
 
     id = models.UUIDField(
         primary_key=True,
@@ -259,46 +260,6 @@ class Tag(BaseModel):
 
 
 # ============================================================
-# Transaction Group (business operation)
-# ============================================================
-
-class TransactionGroup(BaseModel):
-
-    class OperationType(models.TextChoices):
-        INCOME = "income", "Income"
-        EXPENSE = "expense", "Expense"
-        TRANSFER = "transfer", "Transfer"
-        REFUND = "refund", "Refund"
-
-    id = models.UUIDField(
-        primary_key=True,
-        default=uuid.uuid4,
-        editable=False,
-    )
-
-    operation_type = models.CharField(
-        max_length=20,
-        choices=OperationType.choices,
-    )
-
-    created_by = models.ForeignKey(
-        User,
-        on_delete=models.CASCADE,
-        related_name="transaction_groups",
-    )
-
-    class Meta:
-        db_table = "transaction_group"
-        indexes = [
-            models.Index(fields=["created_by", "-created_at"]),
-            models.Index(fields=["operation_type"]),
-        ]
-
-    def __str__(self):
-        return f"{self.operation_type} ({self.id})"
-
-
-# ============================================================
 # Transaction
 # ============================================================
 
@@ -324,12 +285,6 @@ class Transaction(BaseModel):
         User,
         on_delete=models.CASCADE,
         related_name="transactions"
-    )
-
-    transaction_group = models.ForeignKey(
-        TransactionGroup,
-        on_delete=models.PROTECT,
-        related_name="transactions",
     )
 
     account = models.ForeignKey(
@@ -369,11 +324,6 @@ class Transaction(BaseModel):
 
     description = models.TextField(blank=True)
 
-    reference_number = models.CharField(
-        max_length=100,
-        blank=True
-    )
-
     is_group_expense = models.BooleanField(default=False)
 
     is_deleted = models.BooleanField(default=False)
@@ -406,9 +356,6 @@ class Transaction(BaseModel):
             models.Index(
                 fields=["entry_type"]
             ),
-            models.Index(
-                fields=["transaction_group"]
-            ),
         ]
 
         constraints = [
@@ -425,6 +372,84 @@ class Transaction(BaseModel):
     def __str__(self):
         return f"{self.entry_type} - {self.amount}"
 
+
+# ============================================================
+# Transfer
+# ============================================================
+
+class Transfer(BaseModel):
+
+    class Type(models.TextChoices):
+        TRANSFER = "transfer", "Transfer"
+        BILL_PAYMENT = "bill_payment", "Bill Payment"
+
+    id = models.UUIDField(
+        primary_key=True,
+        default=uuid.uuid4,
+        editable=False,
+    )
+
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="transfers",
+    )
+
+    transfer_type = models.CharField(
+        max_length=20,
+        choices=Type.choices,
+        default=Type.TRANSFER,
+    )
+
+    debit_transaction = models.OneToOneField(
+        Transaction,
+        on_delete=models.PROTECT,
+        related_name="debit_transfer",
+    )
+
+    credit_transaction = models.OneToOneField(
+        Transaction,
+        on_delete=models.PROTECT,
+        related_name="credit_transfer",
+    )
+
+    is_deleted = models.BooleanField(default=False)
+
+    notes = models.TextField(blank=True)
+
+    created_by = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="created_transfers",
+    )
+
+    class Meta:
+        db_table = "transfer"
+        
+    @property
+    def amount(self):
+        return self.debit_transaction.amount
+
+    @property
+    def transaction_date(self):
+        return self.debit_transaction.transaction_date
+
+    @property
+    def from_account(self):
+        return self.debit_transaction.account
+
+    @property
+    def to_account(self):
+        return self.credit_transaction.account
+    
+    @property
+    def debit_account(self):
+        return self.debit_transaction.account
+
+
+    @property
+    def credit_account(self):
+        return self.credit_transaction.account
 
 # ============================================================
 # Transaction Item
@@ -535,39 +560,44 @@ class LedgerEntry(BaseModel):
 
     transaction = models.ForeignKey(
         Transaction,
-        on_delete=models.CASCADE,
-        related_name="ledger_entries"
+        on_delete=models.PROTECT,
+        related_name="ledger_entries",
+        editable=False
     )
 
     account = models.ForeignKey(
         Account,
-        on_delete=models.CASCADE,
-        related_name="ledger_entries"
+        on_delete=models.PROTECT,
+        related_name="ledger_entries",
+        editable=False
     )
 
     entry_type = models.CharField(
         max_length=10,
-        choices=EntryType.choices
+        choices=EntryType.choices,
+        editable=False
     )
 
     amount = models.DecimalField(
         max_digits=15,
-        decimal_places=2
+        decimal_places=2,
+        editable=False
     )
 
     running_balance = models.DecimalField(
         max_digits=15,
         decimal_places=2,
-        default=0
+        default=0,
+        editable=False
     )
-
-    is_reversal = models.BooleanField(default=False)
+    posting_number = models.PositiveIntegerField()
     reversal_of = models.ForeignKey(
         "self",
         null=True,
         blank=True,
         on_delete=models.PROTECT,
-        related_name="reversed_by",
+        related_name="reversal_entry",
+        editable=False
     )
 
     class Meta:
@@ -576,8 +606,7 @@ class LedgerEntry(BaseModel):
         indexes = [
             models.Index(fields=["account"]),
             models.Index(fields=["transaction"]),
-            models.Index(fields=["transaction", "is_reversal"]),
-            models.Index(fields=["account", "-created_at"]),
+            models.Index(fields=["account", "-posting_number"]),
         ]
 
         constraints = [
@@ -589,6 +618,10 @@ class LedgerEntry(BaseModel):
                 condition=models.Q(entry_type__in=EntryType.values),
                 name="ledger_entry_entry_type_valid",
             ),
+            models.UniqueConstraint(
+                fields=["account", "posting_number"],
+                name="unique_account_posting_number",
+            )
         ]
 
 

@@ -391,6 +391,17 @@ input.form-control, select.form-select, textarea.form-control {
   color : black;
 }
 
+.glass-card-body form {
+  margin: 1dvh;
+}
+
+
+div form .form-label{
+  margin: 1dvh 1.5dvw;
+  color: aliceblue;
+  min-width: 150px;
+}
+
 .glass-card-body .table .items-body{
   background: grey;
 }
@@ -968,7 +979,7 @@ input.form-control, select.form-select, textarea.form-control {
   position: relative;
   z-index: 1;
   width: 100%;
-  max-width: 440px;
+  max-width: 640px;
 }
 
 .auth-title {
