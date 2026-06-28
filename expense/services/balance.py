@@ -8,8 +8,6 @@ class BalanceService(BaseService):
 
     @staticmethod
     def validate_account(account: Account):
-        if account.is_deleted:
-            raise ServiceError("Account has been deleted.")
 
         if not account.is_active:
             raise ServiceError("Account is inactive.")

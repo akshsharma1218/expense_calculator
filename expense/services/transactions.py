@@ -1,13 +1,9 @@
 from decimal import Decimal
 
 from django.db import transaction as db_transaction
-from django.db.models import F
 
 from ..models import (
     Account,
-    Category,
-    Merchant,
-    Tag,
     Transaction,
     TransactionItem,
 )
@@ -22,10 +18,29 @@ EDITABLE_FIELDS = frozenset({
     "merchant",
     "description",
     "transaction_date",
+    "account",
 })
 
 
 class TransactionService(BaseService):
+
+    @staticmethod
+    def update_bal_and_ledger(transaction_obj, account):
+        BalanceService.apply(
+            account=account,
+            entry_type=transaction_obj.entry_type,
+            amount=transaction_obj.amount,
+        )
+
+        account.refresh_from_db(
+            fields=[
+                "current_balance",
+            ]
+        )
+
+        LedgerService.record(
+            transaction_obj
+        )
 
     @staticmethod
     def _lock_account(account_id):
@@ -36,7 +51,7 @@ class TransactionService(BaseService):
         )
     
     @staticmethod
-    def validate_amount(amount, items):
+    def validate_amount(amount, items = None):
         amount = Decimal(amount)
 
         if amount <= 0:
@@ -65,6 +80,7 @@ class TransactionService(BaseService):
         category,
         merchant=None,
         tags=None,
+        items=None,
     ):
 
         if account.user_id != user.id:
@@ -95,6 +111,13 @@ class TransactionService(BaseService):
                     raise ServiceError(
                         "Invalid tag."
                     )
+        
+        if items:
+            for item in items:
+                if (item["total_price"] != item["quantity"] * item["unit_price"]):
+                    raise ServiceError(
+                        "Invalid item total price."
+                    )
 
     @staticmethod
     @db_transaction.atomic
@@ -122,10 +145,13 @@ class TransactionService(BaseService):
             category=category,
             merchant=merchant,
             tags=tags,
+            items=items,
         )
+
         amount = TransactionService.validate_amount(
             amount, items
         )
+
         txn = Transaction.objects.create(
             user=user,
             account=account,
@@ -152,16 +178,7 @@ class TransactionService(BaseService):
                 ]
             )
 
-        BalanceService.apply(
-            account=account,
-            entry_type=txn.entry_type,
-            amount=txn.amount,
-        )
-
-        LedgerService.record(
-            transaction=txn,
-        )
-
+        TransactionService.update_bal_and_ledger(txn, account)
         return txn
     
     @staticmethod
@@ -190,6 +207,16 @@ class TransactionService(BaseService):
                 transaction_obj.account_id
             )
 
+        new_category = data.get("category")
+
+        if (
+            new_category
+            and new_category.normal_side != transaction_obj.entry_type
+        ):
+            raise ServiceError(
+                "Cannot change transaction type."
+            )
+        
         TransactionService.validate_resources(
             user=transaction_obj.user,
             account=account,
@@ -202,19 +229,22 @@ class TransactionService(BaseService):
                 transaction_obj.merchant,
             ),
             tags=tags if tags is not None else transaction_obj.tags.all(),
+            items=items,
         )
         
 
-
-        if not items:
-            raise ServiceError(
-                "At least one item required."
-            )
-
-        if "amount" in data:
-            data["amount"] = TransactionService.validate_amount(
-                data["amount"], items
-            )
+        if items is not None:
+            if not items:
+                raise ServiceError(
+                    "At least one item required."
+                )
+        new_amount = data.get(
+            "amount",
+            transaction_obj.amount,
+        )
+        data["amount"] = TransactionService.validate_amount(
+            new_amount, items
+        )
 
         BalanceService.reverse(
             account=account,
@@ -232,10 +262,10 @@ class TransactionService(BaseService):
                 field,
                 value,
             )
-        
-        transaction_obj.save(
-            update_fields=list(data.keys())
-        )
+        if data:
+            transaction_obj.save(
+                update_fields=list(data.keys())
+            )
 
         if tags is not None:
             transaction_obj.tags.set(tags)
@@ -254,22 +284,8 @@ class TransactionService(BaseService):
                 ]
             )
 
-        BalanceService.apply(
-            account=account,
-            entry_type=transaction_obj.entry_type,
-            amount=transaction_obj.amount,
-        )
-
-        account.refresh_from_db(
-            fields=[
-                "current_balance",
-            ]
-        )
-
-        LedgerService.record(
-            transaction_obj
-        )
-
+        TransactionService.update_bal_and_ledger(transaction_obj, account)
+        
         return transaction_obj
     
     @staticmethod
@@ -289,6 +305,12 @@ class TransactionService(BaseService):
             account=account,
             entry_type=transaction_obj.entry_type,
             amount=transaction_obj.amount,
+        )
+        
+        account.refresh_from_db(
+            fields=[
+                "current_balance",
+            ]
         )
 
         LedgerService.append_reversal(

@@ -28,6 +28,31 @@ urlpatterns = [
         views.account_create,
         name="account-create",
     ),
+    
+    # Transfer
+    path(
+        "transfers/",
+        views.transfer_list,
+        name="transfer-list",
+    ),
+
+    path(
+        "transfers/create/",
+        views.transfer_create,
+        name="transfer-create",
+    ),
+
+    path(
+        "transfers/<uuid:pk>/edit/",
+        views.transfer_update,
+        name="transfer-update",
+    ),
+
+    path(
+        "transfers/<uuid:pk>/delete/",
+        views.transfer_delete,
+        name="transfer-delete",
+    ),
 
     # Transactions
     path(

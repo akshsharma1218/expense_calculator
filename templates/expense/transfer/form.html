@@ -1,0 +1,139 @@
+{% extends "expense/base.html" %}
+{% load static %}
+
+{% block title %}
+{% if is_edit %}Edit{% else %}Create{% endif %} Transfer — FinFlow
+{% endblock %}
+
+{% block page_heading %}
+{% if is_edit %}Edit Transfer{% else %}New Transfer{% endif %}
+{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center" data-animate>
+
+    <div class="col-lg-8">
+
+        <div class="glass-card">
+
+            <div class="glass-card-header">
+                <div>
+                    <h3 class="mb-1" style="font-weight:700">
+                        {% if is_edit %}
+                            Edit Transfer
+                        {% else %}
+                            Create Transfer
+                        {% endif %}
+                    </h3>
+
+                    <p class="text-muted mb-0 small">
+                        Move money between your accounts or record a bill payment.
+                    </p>
+                </div>
+            </div>
+
+            <div class="glass-card-body">
+
+                <form method="post" class="row g-3">
+
+                    {% csrf_token %}
+
+                    {% if form.non_field_errors %}
+                    <div class="col-12">
+                        <div class="alert alert-danger">
+                            {{ form.non_field_errors }}
+                        </div>
+                    </div>
+                    {% endif %}
+
+                    <div class="col-md-6">
+                        <label class="form-label">
+                            {{ form.from_account.label }}
+                        </label>
+                        {{ form.from_account }}
+                        <div class="text-danger small">
+                            {{ form.from_account.errors|striptags }}
+                        </div>
+                    </div>
+
+                    <div class="col-md-6">
+                        <label class="form-label">
+                            {{ form.to_account.label }}
+                        </label>
+                        {{ form.to_account }}
+                        <div class="text-danger small">
+                            {{ form.to_account.errors|striptags }}
+                        </div>
+                    </div>
+
+                    <div class="col-md-6">
+                        <label class="form-label">
+                            {{ form.amount.label }}
+                        </label>
+                        {{ form.amount }}
+                        <div class="text-danger small">
+                            {{ form.amount.errors|striptags }}
+                        </div>
+                    </div>
+
+                    <div class="col-md-6">
+                        <label class="form-label">
+                            {{ form.transfer_type.label }}
+                        </label>
+                        {{ form.transfer_type }}
+                        <div class="text-danger small">
+                            {{ form.transfer_type.errors|striptags }}
+                        </div>
+                    </div>
+
+                    <div class="col-md-6">
+                        <label class="form-label">
+                            {{ form.transaction_date.label }}
+                        </label>
+                        {{ form.transaction_date }}
+                        <div class="text-danger small">
+                            {{ form.transaction_date.errors|striptags }}
+                        </div>
+                    </div>
+
+                    <div class="col-12">
+                        <label class="form-label">
+                            {{ form.notes.label }}
+                        </label>
+                        {{ form.notes }}
+                        <div class="text-danger small">
+                            {{ form.notes.errors|striptags }}
+                        </div>
+                    </div>
+
+                    <div class="col-12 d-flex justify-content-end gap-2 mt-3">
+
+                        <a href="{% url 'transfer-list' %}"
+                           class="btn btn-outline-light">
+                            Cancel
+                        </a>
+
+                        <button
+                            type="submit"
+                            class="btn btn-primary">
+
+                            {% if is_edit %}
+                                Update Transfer
+                            {% else %}
+                                Save Transfer
+                            {% endif %}
+
+                        </button>
+
+                    </div>
+
+                </form>
+
+            </div>
+
+        </div>
+
+    </div>
+
+</div>
+{% endblock %}

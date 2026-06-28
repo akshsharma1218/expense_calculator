@@ -87,7 +87,7 @@ class Account(BaseModel):
     @property
     def calculated_balance(self):
         balance = self.opening_balance
-        for entry in self.ledger_entries.order_by("created_at", "id"):
+        for entry in self.ledger_entries.order_by("posting_number"):
             if entry.entry_type == EntryType.CREDIT:
                 balance += entry.amount
             else:

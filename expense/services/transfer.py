@@ -1,12 +1,69 @@
 from django.db import transaction as db_transaction
 
-from ..models import Category, EntryType, Transaction, TransactionGroup, TransactionItem
+from ..models import (
+    Account,
+    Category,
+    EntryType,
+    Transfer,
+)
 from .base import BaseService, ServiceError
-from .ledger import LedgerService
 from .transactions import TransactionService
 
 
 class TransferService(BaseService):
+
+    @staticmethod
+    def _get_transfer_categories():
+
+        categories = (
+            Category.objects
+            .filter(
+                category_type=Category.CategoryType.TRANSFER,
+                is_system=True,
+            )
+        )
+
+        debit_category = None
+        credit_category = None
+
+        for category in categories:
+
+            if category.normal_side == EntryType.DEBIT:
+                debit_category = category
+
+            elif category.normal_side == EntryType.CREDIT:
+                credit_category = category
+
+        if debit_category is None or credit_category is None:
+            raise ServiceError(
+                "System transfer categories are not configured."
+            )
+
+        return debit_category, credit_category
+
+    @staticmethod
+    def validate_accounts(
+        *,
+        user,
+        from_account,
+        to_account,
+    ):
+
+        if from_account.pk == to_account.pk:
+            raise ServiceError(
+                "Source and destination accounts must be different."
+            )
+
+        if from_account.user_id != user.id:
+            raise ServiceError(
+                "Invalid source account."
+            )
+
+        if to_account.user_id != user.id:
+            raise ServiceError(
+                "Invalid destination account."
+            )
+
     @staticmethod
     @db_transaction.atomic
     def create_transfer(
@@ -15,69 +72,133 @@ class TransferService(BaseService):
         from_account,
         to_account,
         amount,
-        category,
         transaction_date,
-        merchant=None,
-        description="",
-        reference_number="",
-        tags=None,
-        items=None,
+        notes="",
     ):
-        amount = TransferService._to_decimal(amount)
-        if amount <= 0:
-            raise ServiceError("Amount must be greater than zero.")
-        if not category:
-            raise ServiceError("Category is required.")
-        if from_account == to_account:
-            raise ServiceError("Cannot transfer to the same account.")
 
-        TransactionService.validate_user_resources(
+        TransferService.validate_accounts(
             user=user,
-            account=from_account,
-            category=category,
-            merchant=merchant,
-            tags=tags,
+            from_account=from_account,
+            to_account=to_account,
         )
-        if to_account.user_id != user.id:
-            raise ServiceError("Destination account must belong to current user.")
 
-        group = TransactionGroup.objects.create(
-            operation_type=TransactionGroup.OperationType.TRANSFER,
+        debit_category, credit_category = (
+            TransferService._get_transfer_categories()
+        )
+
+        debit_transaction = (
+            TransactionService.create_transaction(
+                user=user,
+                account=from_account,
+                category=debit_category,
+                amount=amount,
+                transaction_date=transaction_date,
+                description=notes,
+            )
+        )
+
+        credit_transaction = (
+            TransactionService.create_transaction(
+                user=user,
+                account=to_account,
+                category=credit_category,
+                amount=amount,
+                transaction_date=transaction_date,
+                description=notes,
+            )
+        )
+        transfer_type = Transfer.Type.BILL_PAYMENT if to_account.account_type == Account.AccountType.CREDIT_CARD else Transfer.Type.TRANSFER
+
+        return Transfer.objects.create(
+            user=user,
+            transfer_type=transfer_type,
+            debit_transaction=debit_transaction,
+            credit_transaction=credit_transaction,
+            notes=notes,
             created_by=user,
         )
 
-        shared = {
-            "user": user,
-            "transaction_group": group,
-            "category": category,
-            "merchant": merchant,
-            "amount": amount,
-            "transaction_date": transaction_date,
-            "description": description,
-            "reference_number": reference_number,
-        }
+    @staticmethod
+    @db_transaction.atomic
+    def update_transfer(
+        *,
+        transfer,
+        from_account,
+        to_account,
+        amount,
+        transaction_date,
+        notes="",
+    ):
 
-        debit_txn = Transaction.objects.create(
-            account=from_account,
-            entry_type=EntryType.DEBIT,
-            **shared,
-        )
-        credit_txn = Transaction.objects.create(
-            account=to_account,
-            entry_type=EntryType.CREDIT,
-            **shared,
-        )
-
-        if tags:
-            debit_txn.tags.set(tags)
-            credit_txn.tags.set(tags)
-
-        if items:
-            TransactionItem.objects.bulk_create(
-                [TransactionItem(transaction=debit_txn, **item) for item in items]
+        if transfer.is_deleted:
+            raise ServiceError(
+                "Cannot update deleted transfer."
             )
 
-        LedgerService.post_for_transaction(debit_txn)
-        LedgerService.post_for_transaction(credit_txn)
+        TransferService.validate_accounts(
+            user=transfer.user,
+            from_account=from_account,
+            to_account=to_account,
+        )
 
-        return group
+        debit_category, credit_category = (
+            TransferService._get_transfer_categories()
+        )
+
+        TransactionService.update_transaction(
+            transaction_obj=transfer.debit_transaction,
+            account=from_account,
+            category=debit_category,
+            amount=amount,
+            transaction_date=transaction_date,
+            description=notes,
+        )
+
+        TransactionService.update_transaction(
+            transaction_obj=transfer.credit_transaction,
+            account=to_account,
+            category=credit_category,
+            amount=amount,
+            transaction_date=transaction_date,
+            description=notes,
+        )
+
+        
+        transfer.notes = notes
+        transfer.transfer_type = Transfer.Type.BILL_PAYMENT if to_account.account_type == Account.AccountType.CREDIT_CARD else Transfer.Type.TRANSFER
+  
+        transfer.save(
+            update_fields=[
+                "transfer_type",
+                "notes",
+            ]
+        )
+
+        return transfer
+
+    @staticmethod
+    @db_transaction.atomic
+    def delete_transfer(transfer):
+
+        if transfer.is_deleted:
+            raise ServiceError(
+                "Transfer already deleted."
+            )
+
+        TransactionService.delete_transaction(
+            transfer.debit_transaction
+        )
+
+        TransactionService.delete_transaction(
+            transfer.credit_transaction
+        )
+
+        transfer.is_deleted = True
+
+        transfer.save(
+            update_fields=[
+                "is_deleted",
+            ]
+        )
+
+        return transfer

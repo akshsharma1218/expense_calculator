@@ -17,7 +17,6 @@ class LedgerService(BaseService):
             LedgerEntry.objects
             .filter(
                 account=account,
-                reversal_of__isnull=True,
             )
             .order_by("-posting_number")
             .first()

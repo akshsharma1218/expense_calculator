@@ -1,7 +1,10 @@
 from django import forms
+from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.forms import modelformset_factory
 from django.utils import timezone
+
+User = get_user_model()
 
 from .models import (
     Account,
@@ -28,10 +31,11 @@ class TransactionForm(forms.ModelForm):
         fields = (
             "account",
             "category",
+            "amount",
             "merchant",
-            "transaction_date",
             "description",
             "tags",
+            "transaction_date",
         )
 
         widgets = {
@@ -43,6 +47,13 @@ class TransactionForm(forms.ModelForm):
             ),
             "merchant": forms.Select(
                 attrs={"class": "form-select"}
+            ),
+            "amount": forms.NumberInput(
+                attrs={
+                    "class": "form-control",
+                    "step": "0.01",
+                    "min": "0.01",
+                }
             ),
             "transaction_date": forms.DateInput(
                 attrs={
@@ -57,7 +68,10 @@ class TransactionForm(forms.ModelForm):
                 }
             ),
             "tags": forms.SelectMultiple(
-                attrs={"class": "form-select"}
+                attrs={
+                    "class": "form-select",
+                    "size": 3,
+                }
             ),
         }
 
@@ -217,7 +231,7 @@ class TransactionItemForm(forms.ModelForm):
 TransactionItemFormSet = modelformset_factory(
     TransactionItem,
     form=TransactionItemForm,
-    extra=1,
+    extra=0,
     can_delete=True,
     min_num=1,
     validate_min=True,
@@ -361,7 +375,7 @@ class AccountForm(forms.ModelForm):
                 attrs={
                     "class": "form-control",
                     "step": "0.01",
-                    "min": "0",
+                    "min": "0.01",
                 }
             ),
         }
@@ -417,14 +431,57 @@ class CategoryForm(forms.ModelForm):
             ),
         }
 
+    def get_descendants(self, category_id, children_map):
+        descendants = set()
+        stack = [category_id]
+
+        while stack:
+            parent_id = stack.pop()
+
+            for child in children_map.get(parent_id, []):
+                if child.pk not in descendants:
+                    descendants.add(child.pk)
+                    stack.append(child.pk)
+
+        return descendants
+    
     def __init__(self, *args, user=None, **kwargs):
         super().__init__(*args, **kwargs)
-
+        
         if user:
-            self.fields["parent"].queryset = (
-                Category.objects.filter(is_system=True)
-                | Category.objects.filter(created_by=user)
+            queryset = Category.objects.filter(
+                created_by=user,
             )
+
+            if self.instance.pk:
+                queryset = queryset.exclude(pk=self.instance.pk)
+                categories = list(queryset.exclude(pk=self.instance.pk))
+                children_map = {}
+                for category in categories:
+                    children_map.setdefault(category.parent_id, []).append(category)
+
+                categories = list(queryset.exclude(pk=self.instance.pk))
+
+                children_map = {}
+                for category in categories:
+                    children_map.setdefault(category.parent_id, []).append(category)
+
+                descendant_ids = self.get_descendants(
+                    self.instance.pk,
+                    children_map,
+                )
+
+                queryset = queryset.exclude(
+                    pk__in=descendant_ids | {self.instance.pk}
+                )
+
+            self.fields["parent"].queryset = queryset.order_by("name")
+
+        self.fields["category_type"].choices = [
+            choice
+            for choice in self.fields["category_type"].choices
+            if choice[0] not in (Category.CategoryType.TRANSFER, Category.CategoryType.REFUND)
+        ]
 
     def clean_name(self):
         return self.cleaned_data["name"].strip()
@@ -437,6 +494,11 @@ class CategoryForm(forms.ModelForm):
         if parent == self.instance:
             raise ValidationError(
                 "A category cannot be its own parent."
+            )
+
+        if parent and parent.category_type != cleaned.get("category_type"):
+            raise ValidationError(
+                "Parent category must have the same category type."
             )
 
         return cleaned
@@ -616,6 +678,93 @@ class GroupExpenseForm(forms.Form):
             )
         )
 
+
+class SettlementForm(forms.Form):
+
+    receiver = forms.ModelChoiceField(
+        queryset=User.objects.none(),
+        widget=forms.Select(
+            attrs={
+                "class": "form-select",
+            }
+        ),
+    )
+
+    amount = forms.DecimalField(
+        min_value=0.01,
+        max_digits=15,
+        decimal_places=2,
+        widget=forms.NumberInput(
+            attrs={
+                "class": "form-control",
+                "step": "0.01",
+                "min": "0.01",
+            }
+        ),
+    )
+
+    notes = forms.CharField(
+        required=False,
+        widget=forms.Textarea(
+            attrs={
+                "class": "form-control",
+                "rows": 3,
+            }
+        ),
+    )
+
+    def __init__(
+        self,
+        *args,
+        group=None,
+        payer=None,
+        **kwargs,
+    ):
+        super().__init__(*args, **kwargs)
+
+        self.group = group
+        self.payer = payer
+
+        if not group or not payer:
+            return
+
+        self.fields["receiver"].queryset = (
+            User.objects.filter(
+                id__in=group.members.values_list(
+                    "user_id",
+                    flat=True,
+                )
+            )
+            .exclude(
+                id=payer.id,
+            )
+            .order_by("username")
+        )
+
+    def clean(self):
+        cleaned = super().clean()
+
+        receiver = cleaned.get("receiver")
+        amount = cleaned.get("amount")
+
+        if amount and amount <= 0:
+            raise ValidationError(
+                "Amount must be greater than zero."
+            )
+
+        if (
+            self.group
+            and receiver
+            and not self.group.members.filter(
+                user=receiver,
+            ).exists()
+        ):
+            raise ValidationError(
+                "Invalid receiver."
+            )
+
+        return cleaned
+        
 # ============================================================
 # Tag
 # ============================================================

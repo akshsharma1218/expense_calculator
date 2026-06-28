@@ -15,6 +15,16 @@
                 <form method="post" class="row g-3" enctype="multipart/form-data">
                     {% csrf_token %}
 
+                    {% if form.non_field_errors %}
+                        <div class="col-12">
+                            <div class="alert alert-danger">
+                            {% for error in form.non_field_errors %}
+                                {{ error }}
+                            {% endfor %}
+                            </div>
+                        </div>
+                    {% endif %}
+
                     {% for field in form %}
                         <div class="col-md-7">
                             <label for="{{ field.id_for_label }}" class="form-label">{{ field.label }}</label>

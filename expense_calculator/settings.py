@@ -9,13 +9,18 @@ https://docs.djangoproject.com/en/6.0/topics/settings/
 For the full list of settings and their values, see
 https://docs.djangoproject.com/en/6.0/ref/settings/
 """
-
+import os
+import os
+from dotenv import load_dotenv
 from pathlib import Path
+
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+ENV_PATH = BASE_DIR / ".env"
 
+load_dotenv(dotenv_path=ENV_PATH)
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
 
@@ -25,7 +30,15 @@ SECRET_KEY = 'django-insecure-yh*x^7&p7$r!$powsc2hx11r8ad=plob6z=n)$$)@j4%^r^$i(
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ["*"]
+
+CSRF_TRUSTED_ORIGINS = [
+    "https://imaksh.in",
+]
+
+CORS_ALLOW_ALL_ORIGINS = True
+
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'http')
 
 
 # Application definition
@@ -75,10 +88,18 @@ WSGI_APPLICATION = 'expense_calculator.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
 
+
 DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+    "default": {
+        "ENGINE": "django.db.backends.postgresql",
+        "NAME": os.getenv("POSTGRES_DB"),
+        "USER": os.getenv("POSTGRES_USER"),
+        "PASSWORD": os.getenv("POSTGRES_PASSWORD"),
+        "HOST": os.getenv("POSTGRES_HOST"),
+        "PORT": os.getenv("POSTGRES_PORT"),
+        "OPTIONS": {
+            "options": "-c search_path=expense"
+        },
     }
 }
 
@@ -119,8 +140,9 @@ USE_TZ = True
 
 STATIC_URL = '/static/'
 STATICFILES_DIRS = [
-    BASE_DIR / "static",  
+    BASE_DIR / "static",
 ]
+STATIC_ROOT = '/staticfiles'
 
 LOGIN_URL = "login"
 LOGIN_REDIRECT_URL = "dashboard"

@@ -67,10 +67,15 @@
                 <i class="bi bi-shop"></i>
                 <span>Merchants</span>
             </a>
-            <a href="{% url 'group-list' %}" class="nav-item {% if 'group' in request.resolver_match.url_name %}active{% endif %}">
+            <a href="{% url 'transfer-list' %}" class="nav-item {% if 'transfer' in request.resolver_match.url_name %}active{% endif %}">
+                <i class="bi bi-arrow-left-right"></i>
+                <span>Transfer</span>
+            </a>
+            
+            <!-- <a href="{% url 'group-list' %}" class="nav-item {% if 'group' in request.resolver_match.url_name %}active{% endif %}">
                 <i class="bi bi-people-fill"></i>
                 <span>Groups</span>
-            </a>
+            </a> -->
 
             <span class="nav-section">Insights</span>
             <a href="{% url 'monthly-report' %}" class="nav-item {% if request.resolver_match.url_name == 'monthly-report' %}active{% endif %}">

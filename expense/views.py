@@ -11,7 +11,6 @@ from django.shortcuts import (
     redirect,
     get_object_or_404,
 )
-from django.core.paginator import Paginator
 
 from .models import (
     Account,
@@ -20,6 +19,7 @@ from .models import (
     Merchant,
     Transaction,
     TransactionItem,
+    Transfer,
     Budget,
     ExpenseGroup,
 )
@@ -29,10 +29,11 @@ from .forms import (
     CategoryForm,
     MerchantForm,
     TransactionForm,
+    TransferForm,
     BudgetForm,
     ExpenseGroupForm,
-    SettlementForm,
     TransactionItemFormSet,
+    SettlementForm,
 )
 
 from django.contrib.auth.forms import UserCreationForm
@@ -41,16 +42,15 @@ from .services import (
     BudgetService,
     DashboardService,
     GroupService,
-    SettlementService,
     ServiceError,
     TransactionService,
     TransferService,
+    SettlementService,
 )
 
 
 def _collect_transaction_items(formset):
     items = []
-    total_amount = Decimal("0.00")
 
     for item_form in formset:
         if not item_form.cleaned_data:
@@ -62,7 +62,6 @@ def _collect_transaction_items(formset):
         quantity = item_form.cleaned_data["quantity"]
         unit_price = item_form.cleaned_data["unit_price"]
         item_total = quantity * unit_price
-        total_amount += item_total
 
         items.append({
             "name": item_form.cleaned_data["name"],
@@ -71,7 +70,7 @@ def _collect_transaction_items(formset):
             "total_price": item_total,
         })
 
-    return items, total_amount
+    return items
 
 
 def _transaction_fields_from_form(form):
@@ -80,14 +79,10 @@ def _transaction_fields_from_form(form):
         "merchant": form.cleaned_data.get("merchant"),
         "transaction_date": form.cleaned_data["transaction_date"],
         "description": form.cleaned_data["description"],
-        "reference_number": form.cleaned_data["reference_number"],
+        "account": form.cleaned_data["account"],
+        "amount": form.cleaned_data["amount"],
     }
 
-
-def _transaction_create_fields_from_form(form):
-    fields = _transaction_fields_from_form(form)
-    fields["account"] = form.cleaned_data["account"]
-    return fields
 
 def signup(request):
 
@@ -275,7 +270,6 @@ def transaction_list(request):
             "account",
             "category",
             "merchant",
-            "transaction_group",
         )
         .filter(
             user=request.user,
@@ -290,8 +284,6 @@ def transaction_list(request):
             "account_id",
             "category_id",
             "merchant_id",
-            "transaction_group_id",
-            "transaction_group__operation_type",
             "account__name",
             "category__name",
             "merchant__name",
@@ -307,7 +299,6 @@ def transaction_list(request):
             "id": str(txn.id),
             "date": txn.transaction_date.isoformat(),
             "type": txn.entry_type,
-            "operation": txn.transaction_group.operation_type,
             "category": txn.category.name if txn.category else "—",
             "merchant": txn.merchant.name if txn.merchant else "—",
             "account": txn.account.name,
@@ -347,31 +338,21 @@ def transaction_create(request):
 
         if form.is_valid() and formset.is_valid():
 
-            items, total_amount = _collect_transaction_items(formset)
+            items = _collect_transaction_items(formset)
 
             if not items:
                 messages.error(request, "Add at least one item.")
             else:
                 try:
-                    to_account = form.cleaned_data.get("to_account")
                     shared = {
                         "user": request.user,
-                        "amount": total_amount,
                         "tags": form.cleaned_data["tags"],
-                        **_transaction_create_fields_from_form(form),
+                        **_transaction_fields_from_form(form),
                     }
-                    if to_account:
-                        TransferService.create_transfer(
-                            to_account=to_account,
-                            from_account=form.cleaned_data["account"],
-                            items=items,
-                            **shared,
-                        )
-                    else:
-                        TransactionService.create_transaction(
-                            items=items,
-                            **shared,
-                        )
+                    TransactionService.create_transaction(
+                        items=items,
+                        **shared,
+                    )
                 except ServiceError as exc:
                     messages.error(request, str(exc))
                 else:
@@ -379,7 +360,6 @@ def transaction_create(request):
                     return redirect("transaction-list")
 
     else:
-
         form = TransactionForm(user=request.user)
 
         formset = TransactionItemFormSet(
@@ -424,7 +404,7 @@ def transaction_update(request, pk):
 
         if form.is_valid() and formset.is_valid():
 
-            items, _total_amount = _collect_transaction_items(formset)
+            items = _collect_transaction_items(formset)
 
             if not items:
                 messages.error(request, "Add at least one item.")
@@ -462,6 +442,182 @@ def transaction_update(request, pk):
             "formset": formset,
             "transaction": transaction,
             "is_edit": True,
+        },
+    )
+
+@login_required
+def transfer_create(request):
+
+    if request.method == "POST":
+
+        form = TransferForm(
+            request.POST,
+            user=request.user,
+        )
+
+        if form.is_valid():
+
+            try:
+
+                TransferService.create_transfer(
+                    user=request.user,
+                    **form.cleaned_data,
+                )
+
+            except ServiceError as exc:
+
+                messages.error(request, str(exc))
+
+            else:
+
+                messages.success(
+                    request,
+                    "Transfer created."
+                )
+
+                return redirect(
+                    "transfer-list"
+                )
+
+    else:
+
+        form = TransferForm(
+            user=request.user
+        )
+
+    return render(
+        request,
+        "expense/transfer/form.html",
+        {
+            "form": form,
+            "is_edit": False,
+        },
+    )
+
+@login_required
+def transfer_update(request, pk):
+
+    transfer = get_object_or_404(
+        Transfer,
+        pk=pk,
+        user=request.user,
+        is_deleted=False,
+    )
+
+    if request.method == "POST":
+
+        form = TransferForm(
+            request.POST,
+            user=request.user,
+        )
+
+        if form.is_valid():
+
+            try:
+
+                TransferService.update_transfer(
+                    transfer=transfer,
+                    **form.cleaned_data,
+                )
+
+            except ServiceError as exc:
+
+                messages.error(
+                    request,
+                    str(exc),
+                )
+
+            else:
+
+                messages.success(
+                    request,
+                    "Transfer updated.",
+                )
+
+                return redirect(
+                    "transfer-list",
+                )
+
+    else:
+
+        form = TransferForm(
+            initial={
+                "from_account": transfer.from_account,
+                "to_account": transfer.to_account,
+                "amount": transfer.amount,
+                "transaction_date": transfer.transaction_date,
+                "notes": transfer.notes,
+            },
+            user=request.user,
+        )
+
+    return render(
+        request,
+        "expense/transfer/form.html",
+        {
+            "form": form,
+            "transfer": transfer,
+            "is_edit": True,
+        },
+    )
+
+@login_required
+def transfer_delete(request, pk):
+
+    transfer = get_object_or_404(
+        Transfer,
+        pk=pk,
+        user=request.user,
+        is_deleted=False,
+    )
+
+    try:
+
+        TransferService.delete_transfer(
+            transfer
+        )
+
+    except ServiceError as exc:
+
+        messages.error(
+            request,
+            str(exc),
+        )
+
+    else:
+
+        messages.success(
+            request,
+            "Transfer deleted.",
+        )
+
+    return redirect(
+        "transfer-list"
+    )
+
+@login_required
+def transfer_list(request):
+
+    transfers = (
+        Transfer.objects
+        .select_related(
+            "debit_transaction__account",
+            "credit_transaction__account",
+        )
+        .filter(
+            user=request.user,
+            is_deleted=False,
+        )
+        .order_by(
+            "-created_at",
+        )
+    )
+
+    return render(
+        request,
+        "expense/transfer/list.html",
+        {
+            "transfers": transfers,
         },
     )
 
@@ -735,12 +891,8 @@ def group_detail(
         context,
     )
 
-
 @login_required
-def settlement_create(
-    request,
-    pk
-):
+def settlement_create(request, pk):
 
     group = get_object_or_404(
         ExpenseGroup,
@@ -750,40 +902,46 @@ def settlement_create(
     if request.method == "POST":
 
         form = SettlementForm(
-            request.POST
+            request.POST,
+            group=group,
         )
 
         if form.is_valid():
 
-            SettlementService.settle(
-                group=group,
-                payer=form.cleaned_data[
-                    "payer"
-                ],
-                receiver=form.cleaned_data[
-                    "receiver"
-                ],
-                amount=form.cleaned_data[
-                    "amount"
-                ],
-                notes=form.cleaned_data[
-                    "notes"
-                ],
-            )
+            try:
 
-            messages.success(
-                request,
-                "Settlement completed."
-            )
+                SettlementService.settle(
+                    group=group,
+                    payer=request.user,
+                    receiver=form.cleaned_data["receiver"],
+                    amount=form.cleaned_data["amount"],
+                    notes=form.cleaned_data["notes"],
+                )
 
-            return redirect(
-                "group-detail",
-                pk=group.pk,
-            )
+            except ServiceError as exc:
+
+                messages.error(
+                    request,
+                    str(exc),
+                )
+
+            else:
+
+                messages.success(
+                    request,
+                    "Settlement completed successfully.",
+                )
+
+                return redirect(
+                    "group-detail",
+                    pk=group.pk,
+                )
 
     else:
 
-        form = SettlementForm()
+        form = SettlementForm(
+            group=group,
+        )
 
     return render(
         request,
@@ -791,9 +949,9 @@ def settlement_create(
         {
             "form": form,
             "group": group,
+            "payer": request.user,
         },
     )
-
 
 # ============================================================
 # REPORTS
@@ -806,7 +964,7 @@ def monthly_report(request):
         Transaction.objects
         .filter(
             user=request.user,
-            entry_type=EntryType.DEBIT,
+            category__category_type=Category.CategoryType.EXPENSE,
             is_deleted=False,
         )
         .values(
@@ -844,8 +1002,8 @@ def category_report(request):
         Transaction.objects
         .filter(
             user=request.user,
-            entry_type=EntryType.DEBIT,
             is_deleted=False,
+            category__category_type=Category.CategoryType.EXPENSE
         )
         .values(
             "category__name"
@@ -896,7 +1054,7 @@ def category_create(request):
 
     if request.method == "POST":
 
-        form = CategoryForm(request.POST)
+        form = CategoryForm(request.POST, request.user)
 
         if form.is_valid():
 
@@ -915,7 +1073,7 @@ def category_create(request):
 
     else:
 
-        form = CategoryForm()
+        form = CategoryForm(user = request.user)
 
     return render(
         request,
@@ -940,6 +1098,7 @@ def category_update(request, pk):
         form = CategoryForm(
             request.POST,
             instance=category,
+            user = request.user
         )
 
         if form.is_valid():
@@ -955,7 +1114,7 @@ def category_update(request, pk):
 
     else:
 
-        form = CategoryForm(instance=category)
+        form = CategoryForm(instance=category, user = request.user)
 
     return render(
         request,
