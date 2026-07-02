@@ -2,7 +2,6 @@ from datetime import date
 from decimal import Decimal
 import json
 from calendar import month_abbr
-
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.db.models import Sum
@@ -220,7 +219,7 @@ def account_create(request):
 
     if request.method == "POST":
 
-        form = AccountForm(request.POST)
+        form = AccountForm(request.POST, user=request.user)
 
         if form.is_valid():
 
@@ -246,7 +245,7 @@ def account_create(request):
 
     else:
 
-        form = AccountForm()
+        form = AccountForm(user=request.user)
 
     return render(
         request,
@@ -319,6 +318,12 @@ def transaction_list(request):
         },
     )
 
+def _get_transaction_initial(request):
+
+    return request.session.pop(
+        "transaction_initial",
+        None,
+    )
 
 @login_required
 def transaction_create(request):
@@ -360,12 +365,31 @@ def transaction_create(request):
                     return redirect("transaction-list")
 
     else:
-        form = TransactionForm(user=request.user)
+        initial = _get_transaction_initial(request)
 
-        formset = TransactionItemFormSet(
-            queryset=TransactionItem.objects.none(),
-            prefix="items",
-        )
+        if initial:
+
+            form = TransactionForm(
+                user=request.user,
+                initial=initial["form"],
+            )
+            TransactionItemFormSet.extra = max(0, len(initial["items"]) - 1)
+            formset = TransactionItemFormSet(
+                queryset=TransactionItem.objects.none(),
+                prefix="items",
+                initial=initial["items"],
+            )
+
+        else:
+
+            form = TransactionForm(
+                user=request.user,
+            )
+
+            formset = TransactionItemFormSet(
+                queryset=TransactionItem.objects.none(),
+                prefix="items",
+            )
 
     return render(
         request,

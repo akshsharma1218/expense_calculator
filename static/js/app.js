@@ -86,4 +86,12 @@ function formatINR(value) {
   });
 }
 
+document.querySelectorAll(".form-select").forEach((el) => {
+    new TomSelect(el, {
+        create: false,
+        placeholder: "Select",
+        allowEmptyOption: true,
+    });
+});
+
 window.FinFlow = { formatINR };

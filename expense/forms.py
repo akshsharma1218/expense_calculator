@@ -51,8 +51,6 @@ class TransactionForm(forms.ModelForm):
             "amount": forms.NumberInput(
                 attrs={
                     "class": "form-control",
-                    "step": "0.01",
-                    "min": "0.01",
                 }
             ),
             "transaction_date": forms.DateInput(
@@ -99,12 +97,14 @@ class TransactionForm(forms.ModelForm):
             )
             .order_by("name")
         )
+        self.fields["account"].empty_label = None 
 
         category_qs = (
             Category.objects.filter(is_system=True)
             | Category.objects.filter(created_by=user)
         )
 
+        self.fields["category"].empty_label = None 
         if entry_type:
             category_qs = category_qs.filter(
                 normal_side=entry_type
@@ -123,6 +123,7 @@ class TransactionForm(forms.ModelForm):
             )
             .order_by("name")
         )
+        self.fields["merchant"].empty_label = None 
 
         self.fields["tags"].queryset = (
             Tag.objects.filter(user=user)
@@ -192,15 +193,11 @@ class TransactionItemForm(forms.ModelForm):
             "quantity": forms.NumberInput(
                 attrs={
                     "class": "form-control qty",
-                    "step": "0.01",
-                    "min": "0.01",
                 }
             ),
             "unit_price": forms.NumberInput(
                 attrs={
                     "class": "form-control price",
-                    "step": "0.01",
-                    "min": "0.01",
                 }
             ),
         }
@@ -217,16 +214,6 @@ class TransactionItemForm(forms.ModelForm):
             )
 
         return qty
-
-    def clean_unit_price(self):
-        price = self.cleaned_data["unit_price"]
-
-        if price <= 0:
-            raise ValidationError(
-                "Unit price must be greater than zero."
-            )
-
-        return price
 
 TransactionItemFormSet = modelformset_factory(
     TransactionItem,
@@ -268,8 +255,6 @@ class TransferForm(forms.Form):
         widget=forms.NumberInput(
             attrs={
                 "class": "form-control",
-                "step": "0.01",
-                "min": "0.01",
             }
         ),
     )
@@ -317,6 +302,8 @@ class TransferForm(forms.Form):
 
         self.fields["from_account"].queryset = qs
         self.fields["to_account"].queryset = qs
+        self.fields["from_account"].empty_label = None
+        self.fields["to_account"].empty_label = None
 
     def clean(self):
         cleaned = super().clean()
@@ -374,8 +361,6 @@ class AccountForm(forms.ModelForm):
             "opening_balance": forms.NumberInput(
                 attrs={
                     "class": "form-control",
-                    "step": "0.01",
-                    "min": "0.01",
                 }
             ),
         }
@@ -389,7 +374,16 @@ class AccountForm(forms.ModelForm):
             )
 
         return balance
+    
+    def __init__(self, *args, user=None, **kwargs):
+        super().__init__(*args, **kwargs)
 
+        if user:
+            self.fields["account_type"].choices = [
+                choice
+                for choice in self.fields["account_type"].choices
+                if choice[0] not in ("", Account.AccountType.CREDIT_CARD)
+            ]
 
 # ============================================================
 # Category
@@ -480,8 +474,10 @@ class CategoryForm(forms.ModelForm):
         self.fields["category_type"].choices = [
             choice
             for choice in self.fields["category_type"].choices
-            if choice[0] not in (Category.CategoryType.TRANSFER, Category.CategoryType.REFUND)
+            if choice[0] not in ("",Category.CategoryType.TRANSFER, Category.CategoryType.REFUND)
         ]
+        self.fields["parent"].required = False
+        self.fields["parent"].empty_label = ""
 
     def clean_name(self):
         return self.cleaned_data["name"].strip()
@@ -561,7 +557,6 @@ class BudgetForm(forms.ModelForm):
             "month": forms.NumberInput(
                 attrs={
                     "class": "form-control",
-                    "min": 1,
                     "max": 12,
                 }
             ),
@@ -573,8 +568,6 @@ class BudgetForm(forms.ModelForm):
             "amount": forms.NumberInput(
                 attrs={
                     "class": "form-control",
-                    "step": "0.01",
-                    "min": "0.01",
                 }
             ),
         }
@@ -598,6 +591,7 @@ class BudgetForm(forms.ModelForm):
                 )
                 .order_by("name")
             )
+        self.fields["category"].empty_label = None 
 
     def clean_month(self):
         month = self.cleaned_data["month"]
@@ -677,6 +671,7 @@ class GroupExpenseForm(forms.Form):
                 "-created_at",
             )
         )
+        self.fields["transaction"].empty_label = None
 
 
 class SettlementForm(forms.Form):
@@ -697,8 +692,6 @@ class SettlementForm(forms.Form):
         widget=forms.NumberInput(
             attrs={
                 "class": "form-control",
-                "step": "0.01",
-                "min": "0.01",
             }
         ),
     )
@@ -740,6 +733,7 @@ class SettlementForm(forms.Form):
             )
             .order_by("username")
         )
+        self.fields["receiver"].empty_label = None
 
     def clean(self):
         cleaned = super().clean()
@@ -789,3 +783,13 @@ class TagForm(forms.ModelForm):
 
     def clean_name(self):
         return self.cleaned_data["name"].strip()
+    
+class ReceiptUploadForm(forms.Form):
+    receipt = forms.ImageField(
+        widget=forms.FileInput(
+            attrs={
+                "class": "form-control",
+                "accept": "image/*",
+            }
+        )
+    )

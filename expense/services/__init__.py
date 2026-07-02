@@ -6,6 +6,7 @@ from .groups import GroupService, SettlementService
 from .ledger import LedgerService
 from .transactions import TransactionService
 from .transfer import TransferService
+from .receipt import ReceiptService
 
 __all__ = [
     "BaseService",
@@ -18,4 +19,5 @@ __all__ = [
     "LedgerService",
     "TransactionService",
     "TransferService",
+    "ReceiptService",
 ]

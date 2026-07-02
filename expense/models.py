@@ -56,7 +56,8 @@ class Account(BaseModel):
 
     account_type = models.CharField(
         max_length=20,
-        choices=AccountType.choices
+        choices=AccountType.choices,
+        blank=False
     )
 
     opening_balance = models.DecimalField(
@@ -117,7 +118,8 @@ class Category(BaseModel):
 
     category_type = models.CharField(
         max_length=10,
-        choices=CategoryType.choices
+        choices=CategoryType.choices,
+        blank=False
     )
 
     normal_side = models.CharField(
@@ -265,16 +267,6 @@ class Tag(BaseModel):
 
 class Transaction(BaseModel):
 
-    class TransactionStatus(models.TextChoices):
-        PENDING = "pending", "Pending"
-        POSTED = "posted", "Posted"
-        CANCELLED = "cancelled", "Cancelled"
-    
-    status = models.CharField(
-        max_length=20,
-        choices=TransactionStatus.choices,
-        default=TransactionStatus.POSTED
-    )
     id = models.UUIDField(
         primary_key=True,
         default=uuid.uuid4,
