@@ -785,11 +785,31 @@ class TagForm(forms.ModelForm):
         return self.cleaned_data["name"].strip()
     
 class ReceiptUploadForm(forms.Form):
-    receipt = forms.ImageField(
+    receipt = forms.FileField(
         widget=forms.FileInput(
             attrs={
                 "class": "form-control",
-                "accept": "image/*",
+                "accept": "image/*,.pdf",
             }
         )
     )
+
+
+class TransactionsUploadForm(forms.Form):
+    csv_file = forms.FileField(
+        label="CSV File",
+        widget=forms.FileInput(
+            attrs={
+                "class": "form-control",
+                "accept": ".csv,text/csv",
+            }
+        )
+    )
+
+    def clean_csv_file(self):
+        file = self.cleaned_data["csv_file"]
+
+        if not file.name.lower().endswith(".csv"):
+            raise forms.ValidationError("Please upload a CSV file.")
+
+        return file

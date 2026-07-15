@@ -5,9 +5,8 @@
 {% block page_heading %}Transactions{% endblock %}
 
 {% block topbar_actions %}
-<a href="{% url 'transaction-create' %}" class="btn-glow">
-    <i class="bi bi-plus-lg"></i> Add Transaction
-</a>
+{% include "expense/components/data_management_dropdown.html" %}
+
 {% endblock %}
 
 {% block content %}
@@ -28,6 +27,12 @@
     <div id="transactionsTable"></div>
 </div>
 
+
+{% endblock %}
+
+
+{% block modals %}
+{% include "expense/components/form_upload.html" %}
 {% endblock %}
 
 {% block extra_js %}
@@ -38,3 +43,4 @@ document.addEventListener('DOMContentLoaded', function () {
 });
 </script>
 {% endblock %}
+

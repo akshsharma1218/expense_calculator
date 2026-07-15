@@ -7,6 +7,10 @@ from .base import BaseService, ServiceError
 class BalanceService(BaseService):
 
     @staticmethod
+    def _is_credit_card(account: Account):
+        return account.account_type == Account.AccountType.CREDIT_CARD
+
+    @staticmethod
     def validate_account(account: Account):
 
         if not account.is_active:
@@ -16,10 +20,17 @@ class BalanceService(BaseService):
     def credit(*, account: Account, amount):
         BalanceService.validate_account(account)
 
+        is_credit_card = BalanceService._is_credit_card(account)
+        expression = (
+            F("current_balance") - amount
+            if is_credit_card
+            else F("current_balance") + amount
+        )
+
         Account.objects.filter(
             pk=account.pk
         ).update(
-            current_balance=F("current_balance") + amount
+            current_balance=expression
         )
 
 
@@ -27,10 +38,17 @@ class BalanceService(BaseService):
     def debit(*, account: Account, amount):
         BalanceService.validate_account(account)
 
+        is_credit_card = BalanceService._is_credit_card(account)
+        expression = (
+            F("current_balance") + amount
+            if is_credit_card
+            else F("current_balance") - amount
+        )
+
         Account.objects.filter(
             pk=account.pk
         ).update(
-            current_balance=F("current_balance") - amount
+            current_balance=expression
         )
 
 

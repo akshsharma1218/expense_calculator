@@ -1,0 +1,98 @@
+<div class="modal fade" id="TransactionUploadModal" tabindex="-1" aria-labelledby="TransactionUploadLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form method="post" enctype="multipart/form-data" action="{% url 'transactions-upload' %}">
+                {% csrf_token %}
+                <div class="modal-header">
+                    <h5 class="modal-title" id="TransactionUploadLabel">
+                        <i class="bi bi-file-earmark-spreadsheet"></i> Upload Transactions CSV
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="text-muted small mb-3">Upload a CSV file to bulk create transactions.</p>
+                    <div class="mb-3">
+                        <label for="id_csv_file" class="form-label">CSV file</label>
+                        {{ transactions_upload_form.csv_file }}
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Upload</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="ReceiptUploadModal" tabindex="-1" aria-labelledby="ReceiptUploadLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form method="post" enctype="multipart/form-data" action="{% url 'receipt-upload' %}">
+                {% csrf_token %}
+                <div class="modal-header">
+                    <h5 class="modal-title" id="ReceiptUploadLabel">
+                        <i class="bi bi-receipt"></i> Upload Receipt
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="text-muted small mb-3">Upload receipt image or PDF to prefill a transaction.</p>
+                    <div class="mb-3">
+                        <label for="id_receipt" class="form-label">Receipt file</label>
+                        {{ receipt_upload_form.receipt }}
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Upload Receipt</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="DownloadTransactionsModal" tabindex="-1" aria-labelledby="DownloadTransactionsLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form method="get" action="{% url 'transaction-export' %}" target="transactionDownloadFrame">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="DownloadTransactionsLabel">
+                        <i class="bi bi-cloud-download"></i> Download Transactions
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="text-muted small mb-3">Leave filters empty to export all transactions.</p>
+
+                    <div class="mb-3">
+                        <label for="id_start_date" class="form-label">Start date</label>
+                        <input id="id_start_date" type="date" name="start_date" class="form-control">
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="id_end_date" class="form-label">End date</label>
+                        <input id="id_end_date" type="date" name="end_date" class="form-control">
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="id_account" class="form-label">Account</label>
+                        <select id="id_account" name="account" class="form-select">
+                            <option value="">All accounts</option>
+                            {% for account in export_accounts %}
+                            <option value="{{ account.id }}">{{ account.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <a class="btn btn-outline-primary" href="{% url 'transaction-export' %}" target="transactionDownloadFrame">Download All</a>
+                    <button type="submit" class="btn btn-primary">Download Filtered</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<iframe name="transactionDownloadFrame" class="d-none" title="Transaction Download"></iframe>

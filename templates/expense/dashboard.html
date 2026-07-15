@@ -5,9 +5,7 @@
 {% block page_heading %}Dashboard{% endblock %}
 
 {% block topbar_actions %}
-<a href="{% url 'transaction-create' %}" class="btn-glow">
-    <i class="bi bi-plus-lg"></i> New Transaction
-</a>
+{% include "expense/components/data_management_dropdown.html" %}
 {% endblock %}
 
 {% block content %}
@@ -186,4 +184,8 @@ document.addEventListener('DOMContentLoaded', function () {
   else document.getElementById('accountBarChart').innerHTML = '<div class="empty-state"><i class="bi bi-bank"></i><p class="text-muted">No accounts yet</p></div>';
 });
 </script>
+{% endblock %}
+
+{% block modals %}
+{% include "expense/components/form_upload.html" %}
 {% endblock %}

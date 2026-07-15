@@ -1,20 +1,18 @@
 from django.urls import path
 
 from . import views
-from . import api_views
-from django.urls import path
-from rest_framework_simplejwt.views import (
-    TokenObtainPairView,
-    TokenRefreshView,
-)
+
 
 urlpatterns = [
-    path("api/token/", TokenObtainPairView.as_view()),
-    path("api/token/refresh/", TokenRefreshView.as_view()),
     path(
-        "api/v1/transactions/",
-        api_views.TransactionCreateAPIView.as_view(),
-        name="api-transaction-create",
+        "transactions/export/",
+        views.transaction_export,
+        name="transaction-export",
+    ),
+    path(
+        "accounts/json/",
+        views.account_json,
+        name="account-json",
     ),
 ]
 
@@ -96,8 +94,14 @@ urlpatterns += [
 
     path(
         "transactions/receipt-upload/",
-        api_views.receipt_upload,
+        views.receipt_upload,
         name="receipt-upload",
+    ),
+
+    path(
+        "transactions/transactions-upload/",
+        views.transactions_upload,
+        name="transactions-upload",
     ),
 
     # Budgets

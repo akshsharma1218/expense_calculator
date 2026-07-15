@@ -10,19 +10,25 @@ from PIL import Image
 
 class OCRService:
 
-    _ocr = PaddleOCR(
-        use_angle_cls=True,
-        lang="en",
-        enable_mkldnn=False,
-    )
+    _ocr = None
 
+    @classmethod
+    def get_ocr(cls):
+        if cls._ocr is None:
+            cls._ocr = PaddleOCR(
+                use_angle_cls=True,
+                lang="en",
+                enable_mkldnn=False,
+            )
+        return cls._ocr
+    
     @classmethod
     def extract_text(cls, image_file):
 
         image = Image.open(image_file).convert("RGB")
         image_np = np.array(image)
 
-        results = cls._ocr.predict(image_np)
+        results = cls.get_ocr().predict(image_np)
 
         lines = []
 

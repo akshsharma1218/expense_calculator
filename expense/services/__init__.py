@@ -7,6 +7,7 @@ from .ledger import LedgerService
 from .transactions import TransactionService
 from .transfer import TransferService
 from .receipt import ReceiptService
+from .bulk_transaction_upload import BulkTransactionUploadService
 
 __all__ = [
     "BaseService",
@@ -20,4 +21,5 @@ __all__ = [
     "TransactionService",
     "TransferService",
     "ReceiptService",
+    "BulkTransactionUploadService",
 ]

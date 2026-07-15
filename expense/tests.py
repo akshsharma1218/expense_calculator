@@ -1,12 +1,15 @@
 from decimal import Decimal
+from io import BytesIO
+from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.core.management import call_command
 from django.test import TestCase
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.urls import reverse
 
-from .models import Account, Budget, Category, EntryType, LedgerEntry, Transaction, TransactionGroup
-from .services import BudgetService, ServiceError, TransactionService, TransferService
+from .models import Account, Budget, Category, EntryType, LedgerEntry, Transaction, Transfer
+from .services import BudgetService, DashboardService, ServiceError, TransactionService, TransferService, BulkTransactionUploadService
 
 
 User = get_user_model()
@@ -35,6 +38,21 @@ class BudgetServiceTests(TestCase):
             month=6,
             year=2026,
             amount=Decimal("100.00"),
+        )
+
+        Category.objects.create(
+            name="Transfer Out",
+            category_type=Category.CategoryType.TRANSFER,
+            normal_side=EntryType.DEBIT,
+            created_by=None,
+            is_system=True,
+        )
+        Category.objects.create(
+            name="Transfer In",
+            category_type=Category.CategoryType.TRANSFER,
+            normal_side=EntryType.CREDIT,
+            created_by=None,
+            is_system=True,
         )
 
     def test_budget_status_reports_spent_and_remaining(self):
@@ -66,7 +84,6 @@ class BudgetServiceTests(TestCase):
             user=self.user,
             from_account=self.account,
             to_account=transfer_account,
-            category=self.category,
             amount=Decimal("10.00"),
             transaction_date="2026-06-15",
         )
@@ -74,7 +91,7 @@ class BudgetServiceTests(TestCase):
         self.account.refresh_from_db()
         transfer_account.refresh_from_db()
 
-        self.assertEqual(group.operation_type, TransactionGroup.OperationType.TRANSFER)
+        self.assertEqual(group.transfer_type, Transfer.Type.TRANSFER)
         self.assertEqual(group.transactions.count(), 2)
         self.assertEqual(self.account.current_balance, Decimal("90.00"))
         self.assertEqual(transfer_account.current_balance, Decimal("30.00"))
@@ -237,6 +254,53 @@ class TransactionUpdateTests(TestCase):
         self.assertEqual(self.account.current_balance, Decimal("425.00"))
 
 
+class BulkTransactionUploadTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(username="bulk-user", password="strong-pass")
+        self.account = Account.objects.create(
+            user=self.user,
+            name="Wallet",
+            account_type=Account.AccountType.WALLET,
+            opening_balance=Decimal("500.00"),
+            current_balance=Decimal("500.00"),
+        )
+
+    def test_upload_rolls_back_all_rows_when_one_row_fails(self):
+        csv_content = (
+            "account,category,merchant,amount,transaction_date,description\n"
+            "Wallet,Food,Shop One,100.00,2026-06-10,First\n"
+            "Wallet,Food,Shop Two,200.00,2026-06-11,Second\n"
+        ).encode("utf-8")
+        upload_file = SimpleUploadedFile(
+            "bulk.csv",
+            csv_content,
+            content_type="text/csv",
+        )
+
+        original_create_transaction = TransactionService.create_transaction
+        call_count = {"value": 0}
+
+        def create_then_fail(*args, **kwargs):
+            call_count["value"] += 1
+            if call_count["value"] == 1:
+                return original_create_transaction(*args, **kwargs)
+            raise ServiceError("forced bulk failure")
+
+        service = BulkTransactionUploadService()
+
+        with patch(
+            "expense.services.bulk_transaction_upload.TransactionService.create_transaction",
+            side_effect=create_then_fail,
+        ):
+            with self.assertRaisesMessage(ServiceError, "forced bulk failure"):
+                service.upload(self.user, upload_file)
+
+        self.assertEqual(Transaction.objects.count(), 0)
+        self.assertEqual(LedgerEntry.objects.count(), 0)
+        self.account.refresh_from_db()
+        self.assertEqual(self.account.current_balance, Decimal("500.00"))
+
+
 class GroupPageTests(TestCase):
     def setUp(self):
         self.user = User.objects.create_user(username="group-user", password="strong-pass")
@@ -283,3 +347,65 @@ class NightlyReconcileCommandTests(TestCase):
 
         account.refresh_from_db()
         self.assertEqual(account.current_balance, Decimal("90.00"))
+
+
+class CreditCardBalanceBehaviorTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(username="cc-user", password="strong-pass")
+        self.credit_card = Account.objects.create(
+            user=self.user,
+            name="Credit Card",
+            account_type=Account.AccountType.CREDIT_CARD,
+            opening_balance=Decimal("0.00"),
+            current_balance=Decimal("0.00"),
+        )
+        self.wallet = Account.objects.create(
+            user=self.user,
+            name="Wallet",
+            account_type=Account.AccountType.WALLET,
+            opening_balance=Decimal("100.00"),
+            current_balance=Decimal("100.00"),
+        )
+        self.expense_category = Category.objects.create(
+            name="Shopping",
+            category_type=Category.CategoryType.EXPENSE,
+            normal_side=EntryType.DEBIT,
+            created_by=self.user,
+            is_system=False,
+        )
+        self.income_category = Category.objects.create(
+            name="Refund",
+            category_type=Category.CategoryType.REFUND,
+            normal_side=EntryType.CREDIT,
+            created_by=self.user,
+            is_system=False,
+        )
+
+    def test_credit_card_debit_increases_due_and_credit_reduces_due(self):
+        TransactionService.create_transaction(
+            user=self.user,
+            account=self.credit_card,
+            category=self.expense_category,
+            amount=Decimal("100.00"),
+            transaction_date="2026-06-20",
+        )
+        self.credit_card.refresh_from_db()
+        self.assertEqual(self.credit_card.current_balance, Decimal("100.00"))
+
+        TransactionService.create_transaction(
+            user=self.user,
+            account=self.credit_card,
+            category=self.income_category,
+            amount=Decimal("40.00"),
+            transaction_date="2026-06-21",
+        )
+        self.credit_card.refresh_from_db()
+        self.assertEqual(self.credit_card.current_balance, Decimal("60.00"))
+
+    def test_total_balance_subtracts_credit_card_due(self):
+        self.credit_card.current_balance = Decimal("30.00")
+        self.credit_card.save(update_fields=["current_balance"])
+
+        total = DashboardService.total_balance(self.user)
+
+        self.assertEqual(total, Decimal("70.00"))

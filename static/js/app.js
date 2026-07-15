@@ -86,7 +86,7 @@ function formatINR(value) {
   });
 }
 
-document.querySelectorAll(".form-select").forEach((el) => {
+document.querySelectorAll(".form-select:not([data-native-select])").forEach((el) => {
     new TomSelect(el, {
         create: false,
         placeholder: "Select",

@@ -88,11 +88,20 @@ class Account(BaseModel):
     @property
     def calculated_balance(self):
         balance = self.opening_balance
+        is_credit_card = self.account_type == self.AccountType.CREDIT_CARD
+
         for entry in self.ledger_entries.order_by("posting_number"):
             if entry.entry_type == EntryType.CREDIT:
-                balance += entry.amount
+                if is_credit_card:
+                    balance -= entry.amount
+                else:
+                    balance += entry.amount
             else:
-                balance -= entry.amount
+                if is_credit_card:
+                    balance += entry.amount
+                else:
+                    balance -= entry.amount
+
         return balance
 
 
@@ -351,10 +360,6 @@ class Transaction(BaseModel):
         ]
 
         constraints = [
-            models.CheckConstraint(
-                condition=models.Q(amount__gt=0),
-                name="transaction_amount_positive",
-            ),
             models.CheckConstraint(
                 condition=models.Q(entry_type__in=EntryType.values),
                 name="transaction_entry_type_valid",

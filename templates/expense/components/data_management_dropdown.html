@@ -1,0 +1,28 @@
+<div class="btn-group" role="group">
+    <button type="button" class="btn btn-glow dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
+        <i class="bi bi-arrow-repeat"></i> Data Management
+    </button>
+    <ul class="dropdown-menu dropdown-menu-end">
+        <li>
+            <button class="dropdown-item" type="button" data-bs-toggle="modal" data-bs-target="#TransactionUploadModal">
+                <i class="bi bi-file-earmark-spreadsheet"></i> Upload Transactions CSV
+            </button>
+        </li>
+        <li>
+            <button class="dropdown-item" type="button" data-bs-toggle="modal" data-bs-target="#ReceiptUploadModal">
+                <i class="bi bi-receipt"></i> Upload Receipt
+            </button>
+        </li>
+        <li>
+            <button class="dropdown-item" type="button" data-bs-toggle="modal" data-bs-target="#DownloadTransactionsModal">
+                <i class="bi bi-cloud-download"></i> Download Transactions
+            </button>
+        </li>
+        <li><hr class="dropdown-divider"></li>
+        <li>
+            <a class="dropdown-item" href="{% url 'transaction-create' %}">
+                <i class="bi bi-plus-circle"></i> New Transaction
+            </a>
+        </li>
+    </ul>
+</div>

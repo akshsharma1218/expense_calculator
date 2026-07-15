@@ -1,6 +1,31 @@
 window.FinFlowCharts = (function () {
   const COLORS = ['#6366f1', '#22d3ee', '#a78bfa', '#34d399', '#f87171', '#fbbf24', '#818cf8', '#6ee7b7'];
 
+  const formatCompactCurrency = (value) => {
+    const number = Number(value) || 0;
+    const absValue = Math.abs(number);
+
+    let scaled = number;
+    let suffix = '';
+
+    if (absValue >= 10000000) {
+      scaled = number / 10000000;
+      suffix = 'Cr';
+    } else if (absValue >= 100000) {
+      scaled = number / 100000;
+      suffix = 'L';
+    } else if (absValue >= 1000) {
+      scaled = number / 1000;
+      suffix = 'K';
+    }
+
+    const formatted = suffix
+      ? (Number.isInteger(scaled) ? String(scaled) : scaled.toFixed(1).replace(/\.0$/, ''))
+      : number.toLocaleString('en-IN');
+
+    return '₹' + formatted + suffix;
+  };
+
   const baseOptions = {
     chart: {
       fontFamily: '"Plus Jakarta Sans", sans-serif',
@@ -59,7 +84,7 @@ window.FinFlowCharts = (function () {
       yaxis: {
         labels: {
           style: { colors: '#8b9cb8', fontSize: '12px' },
-          formatter: (v) => '₹' + v.toLocaleString('en-IN'),
+          formatter: (v) => formatCompactCurrency(v),
         },
       },
       legend: {
@@ -160,7 +185,7 @@ window.FinFlowCharts = (function () {
       yaxis: {
         labels: {
           style: { colors: '#8b9cb8' },
-          formatter: (v) => '₹' + v.toLocaleString('en-IN'),
+          formatter: (v) => formatCompactCurrency(v),
         },
       },
       legend: { show: false },
@@ -191,7 +216,7 @@ window.FinFlowCharts = (function () {
         categories: data.map((d) => d.name),
         labels: {
           style: { colors: '#8b9cb8' },
-          formatter: (v) => '₹' + Number(v).toLocaleString('en-IN'),
+          formatter: (v) => formatCompactCurrency(v),
         },
       },
       yaxis: {

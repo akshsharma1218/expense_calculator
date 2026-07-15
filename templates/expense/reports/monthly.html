@@ -13,7 +13,28 @@
 
 <div class="mb-4" data-animate>
     <h1 class="page-title">Monthly Report</h1>
-    <p class="page-subtitle">Expense breakdown by category across all time.</p>
+    <p class="page-subtitle">Expense breakdown by category for {{ selected_month_label }}.</p>
+
+    <form method="get" class="d-flex flex-wrap align-items-center gap-2 mt-3">
+        <label for="monthSelector" class="form-label mb-0">Month</label>
+        <select
+            id="monthSelector"
+            name="month"
+            class="form-select"
+            data-native-select="true"
+            style="max-width: 220px;"
+            onchange="this.form.submit()"
+        >
+            {% for option in month_options %}
+            <option value="{{ option.value }}" {% if option.value == selected_month %}selected{% endif %}>
+                {{ option.label }}
+            </option>
+            {% endfor %}
+        </select>
+        <noscript>
+            <button type="submit" class="btn btn-primary btn-sm">Apply</button>
+        </noscript>
+    </form>
 </div>
 
 {% if data %}
@@ -65,7 +86,7 @@
     <div class="empty-state">
         <i class="bi bi-bar-chart"></i>
         <h5>No expense data yet</h5>
-        <p class="text-muted">Start tracking expenses to see your monthly report.</p>
+        <p class="text-muted">No expenses found for {{ selected_month_label }}.</p>
         <a href="{% url 'transaction-create' %}" class="btn btn-primary mt-2">Add Transaction</a>
     </div>
 </div>

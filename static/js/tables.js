@@ -78,13 +78,21 @@ window.FinFlowTables = (function () {
         {
           title: 'Actions',
           field: 'edit_url',
-          width: 150,
+          width: 120,
           hozAlign: 'center',
           headerSort: false,
           formatter: (cell) => {
             const row = cell.getData();
-            return `<a href="${row.edit_url}" class="btn btn-sm btn-outline-light me-1">Edit</a>` +
-              `<a href="${row.delete_url}" class="btn btn-sm btn-outline-danger" onclick="return confirm('Delete this transaction?')">Delete</a>`;
+            return `
+              <div class="d-inline-flex gap-2 align-items-center">
+                <a href="${row.edit_url}" class="btn-icon" title="Edit transaction" aria-label="Edit transaction">
+                  <i class="bi bi-pencil-square" aria-hidden="true"></i>
+                </a>
+                <a href="${row.delete_url}" class="btn-icon" title="Delete transaction" aria-label="Delete transaction" onclick="return confirm('Delete this transaction?')">
+                  <i class="bi bi-trash" aria-hidden="true"></i>
+                </a>
+              </div>
+            `;
           },
         },
       ],
