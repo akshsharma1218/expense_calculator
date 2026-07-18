@@ -364,6 +364,10 @@ class Transaction(BaseModel):
                 condition=models.Q(entry_type__in=EntryType.values),
                 name="transaction_entry_type_valid",
             ),
+            models.CheckConstraint(
+                condition=models.Q(amount__gt=0),
+                name="transaction_amount_positive",
+            )
         ]
 
     def __str__(self):

@@ -51,7 +51,7 @@ window.FinFlowTables = (function () {
           title: 'Date',
           field: 'date',
           sorter: 'date',
-          width: 120,
+          width: 150,
           formatter: (cell) => {
             const d = new Date(cell.getValue());
             return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
@@ -60,7 +60,7 @@ window.FinFlowTables = (function () {
         {
           title: 'Type',
           field: 'type',
-          width: 110,
+          width: 150,
           formatter: (cell) => typeBadge(cell.getValue()),
           headerFilter: 'list',
           headerFilterParams: { values: { '': 'All', credit: 'Credit', debit: 'Debit' } },
@@ -78,7 +78,7 @@ window.FinFlowTables = (function () {
         {
           title: 'Actions',
           field: 'edit_url',
-          width: 120,
+          width: 150,
           hozAlign: 'center',
           headerSort: false,
           formatter: (cell) => {
@@ -127,7 +127,7 @@ window.FinFlowTables = (function () {
         {
           title: 'Type',
           field: 'type',
-          width: 130,
+          width: 150,
           formatter: (cell) => accountTypeBadge(cell.getValue()),
           headerFilter: 'list',
           headerFilterParams: { values: { '': 'All', bank: 'Bank', cash: 'Cash', credit_card: 'Credit Card', wallet: 'Wallet' } },
@@ -145,7 +145,7 @@ window.FinFlowTables = (function () {
           sorter: 'number',
           formatter: (cell) => formatAmount(cell),
         },
-        { title: 'Created', field: 'created', width: 120 },
+        { title: 'Created', field: 'created', width: 150 },
       ],
     });
 
@@ -180,7 +180,7 @@ window.FinFlowTables = (function () {
           title: 'Share',
           field: 'total',
           hozAlign: 'right',
-          width: 100,
+          width: 150,
           sorter: 'number',
           formatter: (cell) => {
             const total = data.reduce((s, r) => s + r.total, 0);

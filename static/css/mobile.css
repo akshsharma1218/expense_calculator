@@ -150,11 +150,14 @@
 
   /* Cards & Glass */
   .glass-card {
-    padding: 12px;
+    padding: 6px;
     border-radius: 14px;
     margin-bottom: 12px;
   }
 
+  .glass-card-body {
+    padding: 2px;
+  }
   /* Tables */
   .table-toolbar {
     flex-direction: column;
@@ -179,9 +182,12 @@
     color: var(--muted);
   }
 
+  .item-row td{
+    padding:10px 5px;
+  }
   /* Table Container - Horizontal Scroll */
   #transactionsTable {
-    overflow-x: auto !important;
+    overflow-x: scroll !important;
     overflow-y: visible !important;
     -webkit-overflow-scrolling: touch;
     width: 100%;
@@ -200,8 +206,7 @@
   .tabulator .tabulator-header {
     background: rgba(255, 255, 255, 0.04) !important;
     border-bottom: 1px solid var(--border) !important;
-    padding: 8px 0 !important;
-    height: 40px !important;
+    padding: 5px 0 !important;
     position: sticky;
     top: 0;
     z-index: 10;
@@ -246,7 +251,7 @@
 
   .tabulator-tableholder {
     max-height: calc(100vh - 300px) !important;
-    overflow-x: auto !important;
+    overflow-x: scroll !important;
     overflow-y: auto !important;
     border: 1px solid var(--border) !important;
     border-radius: 12px !important;
@@ -356,7 +361,8 @@
   }
 
   .btn-primary,
-  .btn-secondary {
+  .btn-secondary,
+  .btn-outline-light {
     width: 100%;
     margin-bottom: 8px;
   }
@@ -464,7 +470,7 @@
 
   /* Tables for Tablets */
   #transactionsTable {
-    overflow-x: auto !important;
+    overflow-x: scroll !important;
     -webkit-overflow-scrolling: touch;
   }
 
@@ -518,6 +524,10 @@
 
   .brand-tag {
     font-size: 0.65rem;
+  }
+
+  .row .col-lg-10, .row .col-12, .glass-card{
+    padding: 3px;
   }
 
   /* Topbar */
@@ -609,9 +619,10 @@
 
   /* Cards */
   .glass-card {
-    padding: 12px;
+    padding: 6px;
     border-radius: 12px;
     margin-bottom: 12px;
+    overflow: overlay;
   }
 
   /* Table */
@@ -878,13 +889,25 @@
     color: var(--accent);
   }
 
+  #transfersTable{
+    width: 1200px !important;
+  }
+
+  .glass-card-body form{
+    margin: 0;
+  }
+  .glass-card-body .table-responsive {
+    padding: 0;
+    overflow-x: scroll !important;
+    -webkit-overflow-scrolling: touch;
+  }
   /* Tabulator Mobile - Optimized for Horizontal Scroll */
   #transactionsTable {
-    overflow-x: auto !important;
+    overflow-x: scroll !important;
     overflow-y: visible !important;
     -webkit-overflow-scrolling: touch;
     display: block;
-    width: 100%;
+    width: 1100px !important;
     margin: 0 -16px;
     padding: 0 16px;
   }
@@ -898,10 +921,9 @@
   }
 
   .tabulator .tabulator-header {
-    padding: 8px 0 !important;
+    padding: 5px 0 !important;
     background: rgba(255, 255, 255, 0.04) !important;
     border-bottom: 2px solid var(--accent) !important;
-    height: 36px !important;
     position: sticky;
     top: 0;
     z-index: 10;
@@ -941,7 +963,7 @@
 
   .tabulator-tableholder {
     max-height: calc(100vh - 350px) !important;
-    overflow-x: auto !important;
+    overflow-x: scroll !important;
     overflow-y: auto !important;
     border: 1px solid var(--border) !important;
     border-radius: 10px !important;
@@ -969,14 +991,14 @@
   }
 
   .tabulator-tableholder {
-    overflow-x: auto !important;
+    overflow-x: scroll !important;
     overflow-y: auto !important;
     -webkit-overflow-scrolling: touch;
   }
 
   /* Table Horizontal Scroll Indicator */
   .table-responsive {
-    overflow-x: auto;
+    overflow-x: scroll;
     -webkit-overflow-scrolling: touch;
     margin: 0 -12px;
     padding: 0 12px;

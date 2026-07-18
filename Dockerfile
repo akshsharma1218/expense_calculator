@@ -1,17 +1,22 @@
-FROM python:3.13-slim AS builder
+FROM python:3.11-slim AS builder
 
 # Build stage - compile dependencies
 WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
     gcc \
+    python3-dev \
+    libffi-dev \
+    libssl-dev \
     libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements-prod.txt .
-RUN pip install --user --no-cache-dir -r requirements-prod.txt
+RUN python -m pip install --upgrade pip setuptools wheel && \
+    pip install --user --no-cache-dir --prefer-binary -r requirements-prod.txt
 
 # Final stage - minimal runtime image
-FROM python:3.13-slim
+FROM python:3.11-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -22,6 +27,9 @@ WORKDIR /app
 # Install only runtime dependencies (no gcc, no build tools)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq5 \
+    libgomp1 \
+    libglib2.0-0 \
+    libgl1 \
     && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user for security
@@ -45,22 +53,5 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
     CMD python -c "import socket; socket.create_connection(('localhost', 8000), timeout=5)" || exit 1
 
-# Production startup with migrations and static collection
-CMD ["sh", "-c", "\
-    python manage.py migrate --noinput && \
-    python manage.py createsuperuser --noinput || true && \
-    python manage.py create_categories --noinput || true && \
-    python manage.py collectstatic --noinput --clear && \
-    gunicorn expense_calculator.wsgi:application \
-        --bind 0.0.0.0:8000 \
-        --workers 4 \
-        --worker-class sync \
-        --max-requests 1000 \
-        --max-requests-jitter 100 \
-        --timeout 60 \
-        --graceful-timeout 30 \
-        --keep-alive 5 \
-        --access-logfile - \
-        --error-logfile - \
-        --log-level info \
-    "]
+# Production startup (runtime only)
+CMD ["gunicorn", "expense_calculator.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "4", "--worker-class", "sync", "--max-requests", "1000", "--max-requests-jitter", "100", "--timeout", "60", "--graceful-timeout", "30", "--keep-alive", "5", "--access-logfile", "-", "--error-logfile", "-", "--log-level", "info"]

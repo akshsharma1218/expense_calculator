@@ -33,7 +33,7 @@ if not SECRET_KEY or SECRET_KEY.startswith("django-insecure"):
         raise ValueError("SECRET_KEY must be set in environment for production")
 
 # SECURITY: Restrict allowed hosts
-ALLOWED_HOSTS = os.getenv("ALLOWED_HOSTS", "localhost,127.0.0.1").split(",")
+ALLOWED_HOSTS = os.getenv("ALLOWED_HOSTS", "localhost,127.0.0.1,django").split(",")
 ALLOWED_HOSTS = [host.strip() for host in ALLOWED_HOSTS]
 
 # SECURITY: Configure CSRF and CORS
@@ -192,7 +192,7 @@ LOGOUT_REDIRECT_URL = "login"
 # Create logs directory and configure log levels
 LOGS_DIR = BASE_DIR / 'logs'
 LOGS_DIR.mkdir(parents=True, exist_ok=True)
-APP_LOG_LEVEL = os.getenv("LOG_LEVEL", "DEBUG").upper()
+APP_LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 
 # ============================================================
 # LOGGING CONFIGURATION

@@ -651,7 +651,6 @@ def transaction_create(request):
             queryset=TransactionItem.objects.none(),
             prefix="items",
         )
-
         if form.is_valid() and formset.is_valid():
 
             items = _collect_transaction_items(formset)

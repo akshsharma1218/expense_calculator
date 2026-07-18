@@ -2,7 +2,7 @@ from decimal import Decimal
 
 from django.db import transaction as db_transaction
 
-from ..models import Account, Transaction, TransactionItem
+from ..models import Account, EntryType, Transaction, TransactionItem
 from .balance import BalanceService
 from .base import BaseService, ServiceError
 from .ledger import LedgerService
@@ -15,6 +15,7 @@ EDITABLE_FIELDS = frozenset({
     "description",
     "transaction_date",
     "account",
+    "entry_type",
 })
 
 
@@ -66,7 +67,7 @@ class TransactionService(BaseService):
                 raise ServiceError(
                     "Transaction amount does not match transaction items."
                 )
-
+        
         return amount
 
     @staticmethod
@@ -132,7 +133,7 @@ class TransactionService(BaseService):
             items=items,
         )
 
-        amount = TransactionService.validate_amount(amount, items)
+        amount= TransactionService.validate_amount(amount, items)
 
         txn = Transaction.objects.create(
             user=user,
@@ -202,7 +203,9 @@ class TransactionService(BaseService):
             tags=tags if tags is not None else transaction_obj.tags.all(),
             items=items,
         )
-
+        
+        original_entry_type = transaction_obj.entry_type
+        
         if items is not None:
             if not items:
                 raise ServiceError("At least one transaction item is required.")
