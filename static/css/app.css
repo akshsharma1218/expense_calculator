@@ -1157,12 +1157,12 @@ div form .form-label{
 /* Cells */
 
 .tabulator .tabulator-cell{
-    padding: 14px 16px !important;
-    border-right: 1px solid rgba(255,255,255,.03) !important;
+    padding: 14px 16px;
+    border-right: 1px solid rgba(255,255,255,.03);
 }
 
 .tabulator .tabulator-cell:last-child{
-    border-right: none !important;
+    border-right: none;
 }
 
 /* Footer */

@@ -28,14 +28,21 @@ window.FinFlowTables = (function () {
   };
 
   const baseConfig = {
-    layout: 'fitColumns',
-    responsiveLayout: 'collapse',
+    layout: "fitColumns", // Do not stretch columns
+    responsiveLayout: "collapse",
     pagination: true,
     paginationSize: 15,
     paginationSizeSelector: [10, 15, 25, 50],
-    movableColumns: true,
-    resizableColumnFit: true,
-    placeholder: '<div class="empty-state"><i class="bi bi-inbox"></i><p>No data found</p></div>',
+    movableColumns: false,
+    resizableColumns: false,
+    placeholder:
+      '<div class="empty-state"><i class="bi bi-inbox"></i><p>No data found</p></div>',
+
+    columnDefaults: {
+      resizable: false,
+      widthGrow: 0,
+      widthShrink: 0,
+    },
   };
 
   function initTransactions(containerId, data, searchInputId) {
@@ -164,13 +171,14 @@ window.FinFlowTables = (function () {
     if (!el || typeof Tabulator === 'undefined') return;
 
     let columns = [
-      { title: 'Category', field: 'name', headerFilter: 'input' },
+      { title: 'Category',  field: 'name', headerFilter: 'input' },
       {
         title: 'Type',
         field: 'type',
         hozAlign: 'right',
         sorter: 'string',
         headerFilter: 'list',
+        resiezable: false,
         headerFilterParams: { values: { '': 'All', income: 'Income', expense: 'Expense', credit: 'Credit' } },
         formatter: (cell) => {
           const type = cell.getValue();
@@ -183,6 +191,7 @@ window.FinFlowTables = (function () {
         field: 'total',
         hozAlign: 'right',
         sorter: 'number',
+        resiezable: false,
         formatter: (cell) => `<span style="font-weight:600">₹${Number(Math.abs(cell.getValue())).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>`,
       },
       {
@@ -190,6 +199,7 @@ window.FinFlowTables = (function () {
         field: 'total',
         hozAlign: 'right',
         width: 150,
+        resiezable: false,
         sorter: 'number',
         formatter: (cell) => {
           const total = data.reduce((s, r) => {

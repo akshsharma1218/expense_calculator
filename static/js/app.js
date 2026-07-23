@@ -32,7 +32,7 @@ function initSidebar() {
 
   document.querySelectorAll('.sidebar-nav .nav-item').forEach((link) => {
     link.addEventListener('click', () => {
-      if (window.innerWidth < 992) close();
+      if (window.innerWidth <= 1200) close();
     });
   });
 }

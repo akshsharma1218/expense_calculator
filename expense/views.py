@@ -1697,18 +1697,21 @@ def transaction_export(request):
     
     writer = csv.writer(response)
     writer.writerow([
-        'Date', 'Account', 'Category', 'Merchant', 'Amount', 'Type', 'Description'
+        'Category', 'Amount', 'Date', 'Account', 'Description', 'Month', 'Quater', 'Year', 'Entry Type', 'Merchant'
     ])
     
     for txn in queryset:
         writer.writerow([
-            txn.transaction_date.strftime('%Y-%m-%d'),
-            txn.account.name,
             txn.category.name,
-            txn.merchant.name if txn.merchant else '',
-            f'{txn.amount:.2f}',
-            txn.entry_type,
+            f"{txn.amount:.2f}" if txn.entry_type == EntryType.DEBIT else f"{-txn.amount:.2f}",
+            txn.transaction_date.strftime("%m/%d/%Y"),  
+            txn.account.name,
             txn.description,
+            txn.transaction_date.strftime("%b"),        
+            f"Q{((txn.transaction_date.month - 1) // 3) + 1}",  
+            txn.transaction_date.year,                 
+            txn.entry_type,
+            txn.merchant.name if txn.merchant else "",
         ])
     
     _log_info(
