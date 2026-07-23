@@ -36,8 +36,8 @@
                             {% endif %}
                         </td>
                         <td class="text-end">
-                            <a href="{% url 'category-update' category.id %}" class="btn btn-sm btn-outline-light">Edit</a>
-                            <a href="{% url 'category-delete' category.id %}" class="btn btn-sm btn-outline-danger" onclick="return confirm('Delete this category?')">Delete</a>
+                            <a href="{% url 'category-update' category.id %}" class="btn btn-sm btn-outline-danger"> <i class="bi bi-pencil-square" aria-hidden="true"></i></a>
+                            <a href="{% url 'category-delete' category.id %}" class="btn btn-sm btn-outline-danger" onclick="return confirm('Delete this category?')"><i class="bi bi-trash" aria-hidden="true"></i></a>
                         </td>
                     </tr>
                     {% empty %}

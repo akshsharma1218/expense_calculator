@@ -6,7 +6,7 @@ import logging
 from calendar import month_abbr
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
-from django.db.models import DecimalField, Sum, Case, When, F
+from django.db.models import DecimalField, ProtectedError, Sum, Case, When, F
 from django.shortcuts import (
     render,
     redirect,
@@ -1534,7 +1534,13 @@ def category_delete(request, pk):
         created_by=request.user,
     )
 
-    category.delete()
+    try:
+        category.delete()
+    except ProtectedError:
+        _flash_error(
+            request,
+            "Cannot delete category because it is associated with existing transactions."
+        )
 
     _flash_success(
         request,

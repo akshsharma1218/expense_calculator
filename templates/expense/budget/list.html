@@ -48,7 +48,7 @@
             <div class="d-flex justify-content-end gap-2">
                 <a href="{% url 'budget-detail' item.budget.id %}" class="btn btn-sm btn-outline-light">View</a>
                 <a href="{% url 'budget-update' item.budget.id %}" class="btn btn-sm btn-outline-light">Edit</a>
-                <a href="{% url 'budget-delete' item.budget.id %}" class="btn btn-sm btn-outline-danger" onclick="return confirm('Delete this budget?')">Delete</a>
+                <a href="{% url 'budget-delete' item.budget.id %}" class="btn btn-sm btn-outline-light" onclick="return confirm('Delete this budget?')">Delete</a>
             </div>
         </div>
     </div>

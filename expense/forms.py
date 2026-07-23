@@ -4,6 +4,7 @@ from django.core.exceptions import ValidationError
 from django.forms import modelformset_factory
 from django.utils import timezone
 
+
 User = get_user_model()
 
 from .models import (
@@ -386,12 +387,8 @@ class AccountForm(forms.ModelForm):
     def __init__(self, *args, user=None, **kwargs):
         super().__init__(*args, **kwargs)
 
-        if user:
-            self.fields["account_type"].choices = [
-                choice
-                for choice in self.fields["account_type"].choices
-                if choice[0] not in ("", Account.AccountType.CREDIT_CARD)
-            ]
+        if not user:
+            raise ValueError("User is required for AccountForm.")
 
 # ============================================================
 # Category

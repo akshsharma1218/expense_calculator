@@ -39,6 +39,7 @@ class Account(BaseModel):
         CASH = "cash", "Cash"
         CREDIT_CARD = "credit_card", "Credit Card"
         WALLET = "wallet", "Wallet"
+        INVESTMENT = "investment", "Investment"
 
     id = models.UUIDField(
         primary_key=True,
@@ -382,6 +383,7 @@ class Transfer(BaseModel):
     class Type(models.TextChoices):
         TRANSFER = "transfer", "Transfer"
         BILL_PAYMENT = "bill_payment", "Bill Payment"
+        INVESTMENT = "investment", "Investment"
 
     id = models.UUIDField(
         primary_key=True,

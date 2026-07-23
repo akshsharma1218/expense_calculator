@@ -107,7 +107,12 @@ class TransferService(BaseService):
                 description=notes,
             )
         )
-        transfer_type = Transfer.Type.BILL_PAYMENT if to_account.account_type == Account.AccountType.CREDIT_CARD else Transfer.Type.TRANSFER
+        
+        transfer_type = Transfer.Type.TRANSFER
+        if to_account.account_type == Account.AccountType.CREDIT_CARD:
+            transfer_type = Transfer.Type.BILL_PAYMENT
+        elif to_account.account_type == Account.AccountType.INVESTMENT:
+            transfer_type = Transfer.Type.INVESTMENT
 
         return Transfer.objects.create(
             user=user,
