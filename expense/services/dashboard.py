@@ -2,9 +2,9 @@ from calendar import month_abbr
 from datetime import date
 from decimal import Decimal
 
-from django.db.models import Sum
+from django.db.models import Sum, When, Case, F, DecimalField
 
-from ..models import Account, EntryType, Transaction
+from ..models import Account, Category, EntryType, Transaction
 from .base import BaseService
 
 
@@ -35,8 +35,9 @@ class DashboardService(BaseService):
                 entry_type=EntryType.DEBIT,
                 transaction_date__month=month,
                 transaction_date__year=year,
-                is_deleted=False,
-            ).aggregate(total=Sum("amount"))["total"]
+                is_deleted=False)
+            .exclude(category__category_type=Category.CategoryType.TRANSFER)
+            .aggregate(total=Sum("amount"))["total"]
             or Decimal("0.00")
         )
 
@@ -49,7 +50,9 @@ class DashboardService(BaseService):
                 transaction_date__month=month,
                 transaction_date__year=year,
                 is_deleted=False,
-            ).aggregate(total=Sum("amount"))["total"]
+            )
+            .exclude(category__category_type=Category.CategoryType.TRANSFER)
+            .aggregate(total=Sum("amount"))["total"]
             or Decimal("0.00")
         )
 
@@ -123,7 +126,6 @@ class DashboardService(BaseService):
         )
         filters = {
             "user": user,
-            "entry_type": EntryType.DEBIT,
             "is_deleted": False,
         }
         if month and year:
@@ -132,13 +134,23 @@ class DashboardService(BaseService):
 
         rows = (
             Transaction.objects.filter(**filters)
-            .values("category__name")
-            .annotate(total=Sum("amount"))
+            .exclude(category__category_type=Category.CategoryType.TRANSFER)
+            .values("category__name", "category__category_type")
+            .annotate(
+                total=Sum(
+                        Case(
+                            When(entry_type=EntryType.CREDIT, then=-F("amount")),
+                            default=F("amount"),
+                            output_field=DecimalField(),
+                        )
+                    )
+                )
             .order_by("-total")
         )
         return [
             {
                 "name": row["category__name"] or "Uncategorized",
+                "type": row["category__category_type"],
                 "total": float(row["total"] or 0),
             }
             for row in rows

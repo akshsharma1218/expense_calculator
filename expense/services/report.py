@@ -3,8 +3,8 @@ from django.db.models.functions import TruncMonth
 
 from ..models import (
     Account,
+    Category,
     EntryType,
-    LedgerEntry,
     Transaction,
 )
 from .base import BaseService
@@ -28,6 +28,7 @@ class ReportService(BaseService):
                 transaction_date__year=year,
                 is_deleted=False,
             )
+            .exclude(category__category_type=Category.CategoryType.TRANSFER)
             .aggregate(
                 total=Sum("amount")
             )["total"]
@@ -50,6 +51,7 @@ class ReportService(BaseService):
                 transaction_date__year=year,
                 is_deleted=False,
             )
+            .exclude(category__category_type=Category.CategoryType.TRANSFER)
             .aggregate(
                 total=Sum("amount")
             )["total"]
@@ -71,6 +73,7 @@ class ReportService(BaseService):
                 entry_type=EntryType.DEBIT,
                 is_deleted=False,
             )
+            .exclude(category__category_type=Category.CategoryType.TRANSFER)
         )
 
         if month:
@@ -113,46 +116,3 @@ class ReportService(BaseService):
             .order_by("name")
         )
 
-    @staticmethod
-    def account_statement(account):
-
-        return (
-            LedgerEntry.objects
-            .filter(
-                account=account,
-            )
-            .select_related(
-                "transaction",
-                "reversal_of",
-            )
-            .order_by(
-                "posting_number",
-            )
-        )
-
-    @staticmethod
-    def cash_flow(
-        *,
-        user,
-    ):
-
-        return (
-            Transaction.objects
-            .filter(
-                user=user,
-                is_deleted=False,
-            )
-            .annotate(
-                month=TruncMonth(
-                    "transaction_date"
-                )
-            )
-            .values(
-                "month",
-                "entry_type",
-            )
-            .annotate(
-                total=Sum("amount")
-            )
-            .order_by("month")
-        )

@@ -159,37 +159,58 @@ window.FinFlowTables = (function () {
     return table;
   }
 
-  function initReportTable(containerId, data) {
+  function initReportTable(containerId, data, typeFilter = null) {
     const el = document.getElementById(containerId);
     if (!el || typeof Tabulator === 'undefined') return;
 
-    return new Tabulator(el, {
+    let columns = [
+      { title: 'Category', field: 'name', headerFilter: 'input' },
+      {
+        title: 'Type',
+        field: 'type',
+        hozAlign: 'right',
+        sorter: 'string',
+        headerFilter: 'list',
+        headerFilterParams: { values: { '': 'All', income: 'Income', expense: 'Expense', credit: 'Credit' } },
+        formatter: (cell) => {
+          const type = cell.getValue();
+          const color = type === 'expense' ? '#f87171' : type === 'income' ? '#34d399' : type === 'credit' ? '#34d399' : '#000';
+          return `<span style="font-weight:900;color:${color}">${type}</span>`;
+        },
+      },
+      {
+        title: 'Amount',
+        field: 'total',
+        hozAlign: 'right',
+        sorter: 'number',
+        formatter: (cell) => `<span style="font-weight:600">₹${Number(Math.abs(cell.getValue())).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>`,
+      },
+      {
+        title: 'Share',
+        field: 'total',
+        hozAlign: 'right',
+        width: 150,
+        sorter: 'number',
+        formatter: (cell) => {
+          const total = data.reduce((s, r) => {
+            if (r.type == cell.getData().type) s += r.total;
+            return s;
+          }, 0);
+          const pct = total ? ((cell.getValue() / total) * 100).toFixed(1) : 0;
+          return `<span style="color:#8b9cb8">${pct}%</span>`;
+        },
+      },
+    ];
+    console.log('Report table columns:', columns);
+    let tabulator = new Tabulator(el, {
       ...baseConfig,
       pagination: false,
+      initialSort: [{ column: 'type', dir: 'desc' }],
       data: data,
-      columns: [
-        { title: 'Category', field: 'name', headerFilter: 'input' },
-        {
-          title: 'Amount',
-          field: 'total',
-          hozAlign: 'right',
-          sorter: 'number',
-          formatter: (cell) => `<span style="font-weight:600">₹${Number(cell.getValue()).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>`,
-        },
-        {
-          title: 'Share',
-          field: 'total',
-          hozAlign: 'right',
-          width: 150,
-          sorter: 'number',
-          formatter: (cell) => {
-            const total = data.reduce((s, r) => s + r.total, 0);
-            const pct = total ? ((cell.getValue() / total) * 100).toFixed(1) : 0;
-            return `<span style="color:#8b9cb8">${pct}%</span>`;
-          },
-        },
-      ],
+      columns: columns,
     });
+
+    return tabulator;
   }
 
   return { initTransactions, initAccounts, initReportTable };

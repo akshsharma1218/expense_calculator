@@ -151,6 +151,7 @@ class LedgerEntryAdmin(admin.ModelAdmin):
         "amount",
         "running_balance",
         "posting_number",
+        "reversal_of",
     )
 
     list_filter = (

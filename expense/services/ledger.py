@@ -21,11 +21,12 @@ class LedgerService(BaseService):
         return entry_type, normalized_amount
 
     @staticmethod
-    def latest_posted_entry(transaction):
+    def latest_posted_entry(transaction, account):
         entry = (
             LedgerEntry.objects
             .filter(
                 transaction=transaction,
+                account=account,
                 reversal_of__isnull=True,
             )
             .order_by("-posting_number")
@@ -172,14 +173,21 @@ class LedgerService(BaseService):
     
     @staticmethod
     @db_transaction.atomic
-    def append_reversal(transaction, *, original_entry=None):
+    def append_reversal(transaction, *, account=None, original_entry=None):
         """
         Append a reversal ledger entry.
 
         The original ledger entry is never modified.
         """
 
-        original = original_entry or LedgerService.latest_posted_entry(transaction)
+        if account is None:
+            LedgerService._log_debug(
+                "Account not provided for reversal, fetching from transaction",
+                transaction_id=getattr(transaction, "id", None),
+            )
+            account = Account.objects.get(pk=transaction.account_id)
+
+        original = original_entry or LedgerService.latest_posted_entry(transaction, account)
 
         if LedgerEntry.objects.filter(
             reversal_of=original,
@@ -188,7 +196,6 @@ class LedgerService(BaseService):
                 "Transaction already reversed."
             )
         
-        account = Account.objects.get(pk=original.account_id)
         original_entry_type, original_amount = LedgerService._normalize_entry(
             original.entry_type,
             original.amount,

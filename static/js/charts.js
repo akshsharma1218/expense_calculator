@@ -104,8 +104,10 @@ window.FinFlowCharts = (function () {
     const el = document.getElementById(containerId);
     if (!el || !data || !data.length || typeof ApexCharts === 'undefined') return;
 
+    data = data.filter((d) => d.type === 'expense');
+    
     const labels = data.map((d) => d.name);
-    const values = data.map((d) => d.total);
+    const values = data.map((d) => Math.abs(d.total));
 
     const chart = new ApexCharts(el, {
       ...baseOptions,
@@ -152,12 +154,12 @@ window.FinFlowCharts = (function () {
     return chart;
   }
 
-  function renderBar(containerId, data, options = {}) {
+  function renderBar(containerId, data, options = {}, data_type) {
     const el = document.getElementById(containerId);
     if (!el || !data || !data.length || typeof ApexCharts === 'undefined') return;
-
+    data = data.filter((d) => d.type === data_type);
     const labels = data.map((d) => d.name);
-    const values = data.map((d) => d.total);
+    const values = data.map((d) => Math.abs(d.total));
 
     const chart = new ApexCharts(el, {
       ...baseOptions,
@@ -186,6 +188,48 @@ window.FinFlowCharts = (function () {
         labels: {
           style: { colors: '#8b9cb8' },
           formatter: (v) => formatCompactCurrency(v),
+        },
+      },
+      legend: { show: false },
+      dataLabels: { enabled: false },
+    });
+
+    chart.render();
+    return chart;
+  }
+
+  function renderBarHor(containerId, data, options = {}, data_type) {
+    const el = document.getElementById(containerId);
+    if (!el || !data || !data.length || typeof ApexCharts === 'undefined') return;
+    data = data.filter((d) => d.type === data_type);
+    const labels = data.map((d) => d.name);
+    const values = data.map((d) => Math.abs(d.total));
+
+    const chart = new ApexCharts(el, {
+      ...baseOptions,
+      chart: { ...baseOptions.chart, type: 'bar', height: options.height || 320 },
+      series: [{ name: 'Amount', data: values }],
+      colors: [options.color || '#6366f1'],
+      plotOptions: {
+        bar: {
+          borderRadius: 8,
+          horizontal: true,
+          barHeight: '55%',
+          distributed: true,
+        },
+      },
+      colors: COLORS,
+      xaxis: {
+        categories: labels,
+        labels: {
+          style: { colors: '#8b9cb8' },
+          formatter: (v) => formatCompactCurrency(v),
+        },
+      },
+      yaxis: {
+        labels: {
+          style: { colors: '#8b9cb8', fontSize: '11px' },
+          trim: true,
         },
       },
       legend: { show: false },
@@ -235,6 +279,7 @@ window.FinFlowCharts = (function () {
     renderMonthlyTrend,
     renderDonut,
     renderBar,
+    renderBarHor,
     renderAccountBar,
   };
 })();

@@ -11,7 +11,6 @@ from .transactions import TransactionService
 from ..models import (
     Account,
     EntryType,
-    TransactionItem,
     Category,
     Merchant,
 )
@@ -266,7 +265,7 @@ class BulkTransactionUploadService(BaseService):
     def create_item(self, amount):
         """Create transaction item."""
         item = {
-            "name": "Uploaded Item",
+            "name": "Item",
             "quantity": 1,
             "unit_price": amount,
             "total_price": amount,
@@ -339,12 +338,13 @@ class BulkTransactionUploadService(BaseService):
                     account=account_cache[row["account"].strip()],
                     category=category_cache[row["category"].strip()],
                     merchant=merchant_cache[row["merchant"].strip()],
-                    amount=amount,
+                    amount=abs(amount),
                     transaction_date=row["transaction_date"],
                     description=row.get("description", ""),
                     is_group_expense=False,
                     items=self.create_item(amount),
                     tags=None,
+                    refund = amount < 0,
                 )
 
                 created += 1

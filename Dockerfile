@@ -54,4 +54,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
     CMD python -c "import socket; socket.create_connection(('localhost', 8000), timeout=5)" || exit 1
 
 # Production startup (runtime only)
-CMD ["gunicorn", "expense_calculator.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "4", "--worker-class", "sync", "--max-requests", "1000", "--max-requests-jitter", "100", "--timeout", "60", "--graceful-timeout", "30", "--keep-alive", "5", "--access-logfile", "-", "--error-logfile", "-", "--log-level", "info"]
+CMD ["gunicorn", "expense_calculator.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "4", "--worker-class", "sync", "--max-requests", "1000", "--max-requests-jitter", "100", "--timeout", "300", "--graceful-timeout", "60", "--keep-alive", "5", "--access-logfile", "-", "--error-logfile", "-", "--log-level", "info"]

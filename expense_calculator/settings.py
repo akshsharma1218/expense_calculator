@@ -45,7 +45,7 @@ CSRF_TRUSTED_ORIGINS = [
 ]
 
 CORS_ALLOWED_ORIGINS = [
-    host.strip() for host in os.getenv(
+    host.strip() for host in os.getenv( 
         "CORS_ALLOWED_ORIGINS",
         "http://localhost:3000,http://localhost:5173"
     ).split(",")
@@ -56,6 +56,10 @@ SECURE_SSL_REDIRECT = not DEBUG
 SESSION_COOKIE_SECURE = not DEBUG
 CSRF_COOKIE_SECURE = not DEBUG
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+
+SECURE_REDIRECT_EXEMPT = [
+    r"^health/$",
+]
 
 # SECURITY: HSTS (HTTP Strict Transport Security)
 SECURE_HSTS_SECONDS = int(os.getenv("SECURE_HSTS_SECONDS", "0" if DEBUG else "31536000"))
@@ -169,7 +173,7 @@ AUTH_PASSWORD_VALIDATORS = [
 
 LANGUAGE_CODE = 'en-us'
 
-TIME_ZONE = 'UTC'
+TIME_ZONE = 'Asia/Kolkata'
 
 USE_I18N = True
 
@@ -192,7 +196,7 @@ LOGOUT_REDIRECT_URL = "login"
 # Create logs directory and configure log levels
 LOGS_DIR = BASE_DIR / 'logs'
 LOGS_DIR.mkdir(parents=True, exist_ok=True)
-APP_LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
+APP_LOG_LEVEL = os.getenv("LOG_LEVEL", "DEBUG").upper()
 
 # ============================================================
 # LOGGING CONFIGURATION
@@ -231,7 +235,7 @@ LOGGING = {
             'level': APP_LOG_LEVEL,
             'class': 'logging.handlers.RotatingFileHandler',
             'filename': LOGS_DIR / 'application.log',
-            'maxBytes': 1024 * 1024 * 10,  # 10MB
+            'maxBytes': 1024 * 1024 * 10,
             'backupCount': 5,
             'formatter': 'verbose',
         },

@@ -24,6 +24,13 @@ from .models import (
 # ============================================================
 
 class TransactionForm(forms.ModelForm):
+    refund = forms.BooleanField(
+        required=False,
+        label="Refund",
+        widget=forms.CheckboxInput(
+            attrs={"class": "form-check-input"}
+        ),
+    )
 
     class Meta:
         model = Transaction
@@ -36,6 +43,7 @@ class TransactionForm(forms.ModelForm):
             "description",
             "tags",
             "transaction_date",
+            "refund",
         )
 
         widgets = {
@@ -77,7 +85,6 @@ class TransactionForm(forms.ModelForm):
         self,
         *args,
         user=None,
-        entry_type=None,
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
@@ -89,6 +96,11 @@ class TransactionForm(forms.ModelForm):
 
         if not user:
             return
+
+
+        if self.instance._state.adding == False:
+            if self.instance.entry_type != self.instance.category.normal_side:
+                self.fields["refund"].initial = True 
 
         self.fields["account"].queryset = (
             Account.objects.filter(
@@ -105,10 +117,6 @@ class TransactionForm(forms.ModelForm):
         )
 
         self.fields["category"].empty_label = None 
-        if entry_type:
-            category_qs = category_qs.filter(
-                normal_side=entry_type
-            )
 
         self.fields["category"].queryset = (
             category_qs
@@ -474,7 +482,7 @@ class CategoryForm(forms.ModelForm):
         self.fields["category_type"].choices = [
             choice
             for choice in self.fields["category_type"].choices
-            if choice[0] not in ("",Category.CategoryType.TRANSFER, Category.CategoryType.REFUND)
+            if choice[0] not in ("",Category.CategoryType.TRANSFER)
         ]
         self.fields["parent"].required = False
         self.fields["parent"].empty_label = ""

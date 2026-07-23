@@ -114,7 +114,6 @@ class Category(BaseModel):
     class CategoryType(models.TextChoices):
         INCOME = "income", "Income"
         EXPENSE = "expense", "Expense"
-        REFUND = "refund", "Refund"
         TRANSFER = "transfer", "Transfer"
 
     id = models.UUIDField(

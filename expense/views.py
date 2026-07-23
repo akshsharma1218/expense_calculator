@@ -3,11 +3,10 @@ from decimal import Decimal
 import json
 import csv
 import logging
-from io import StringIO
 from calendar import month_abbr
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
-from django.db.models import Sum
+from django.db.models import DecimalField, Sum, Case, When, F
 from django.shortcuts import (
     render,
     redirect,
@@ -172,8 +171,12 @@ def _transaction_fields_from_form(form):
         "description": form.cleaned_data["description"],
         "account": form.cleaned_data["account"],
         "amount": form.cleaned_data["amount"],
+        "refund": form.cleaned_data.get("refund"),
     }
 
+
+def health_check(request):
+    return HttpResponse("OK", content_type="text/plain")
 
 def signup(request):
 
@@ -656,23 +659,27 @@ def transaction_create(request):
             items = _collect_transaction_items(formset)
 
             if not items:
-                _flash_error(request, "Add at least one item.")
+                items = [{
+                    "name": "Item",
+                    "quantity": 1,
+                    "unit_price": form.cleaned_data["amount"],
+                    "total_price": form.cleaned_data["amount"],
+                }]
+            try:
+                shared = {
+                    "user": request.user,
+                    "tags": form.cleaned_data["tags"],
+                    **_transaction_fields_from_form(form),
+                }
+                TransactionService.create_transaction(
+                    items=items,
+                    **shared,
+                )
+            except ServiceError as exc:
+                _flash_error(request, str(exc), exc_info=True)
             else:
-                try:
-                    shared = {
-                        "user": request.user,
-                        "tags": form.cleaned_data["tags"],
-                        **_transaction_fields_from_form(form),
-                    }
-                    TransactionService.create_transaction(
-                        items=items,
-                        **shared,
-                    )
-                except ServiceError as exc:
-                    _flash_error(request, str(exc), exc_info=True)
-                else:
-                    _flash_success(request, "Transaction created.")
-                    return redirect("transaction-list")
+                _flash_success(request, "Transaction created.")
+                return redirect("transaction-list")
 
     else:
         initial = _get_transaction_initial(request)
@@ -1300,9 +1307,9 @@ def monthly_report(request):
         Transaction.objects
         .filter(
             user=request.user,
-            category__category_type=Category.CategoryType.EXPENSE,
             is_deleted=False,
         )
+        .exclude(category__category_type=Category.CategoryType.TRANSFER)
     )
 
     month_options = [
@@ -1342,28 +1349,35 @@ def monthly_report(request):
             transaction_date__year=selected_month_date.year,
         )
         .values(
-            "category__name"
+            "category__name",
+            "category__category_type",
         )
         .annotate(
-            total=Sum("amount")
-        )
+            total=Sum(
+                    Case(
+                        When(entry_type=EntryType.CREDIT, then=-F("amount")),
+                        default=F("amount"),
+                        output_field=DecimalField(),
+                    )
+                )
+            )
         .order_by("-total")
     )
-
     chart_data = [
         {
             "name": item["category__name"] or "Uncategorized",
+            "type": item["category__category_type"],
             "total": float(item["total"] or 0),
         }
         for item in data
     ]
-
     return render(
         request,
         "expense/reports/monthly.html",
         {
             "data": data,
-            "total_expense": sum(item["total"] for item in data),
+            "total_expense": sum(item["total"] for item in data if item["category__category_type"] == Category.CategoryType.EXPENSE),
+            "total_income": abs(sum(item["total"] for item in data if item["category__category_type"] == Category.CategoryType.INCOME)),
             "chart_data": json.dumps(chart_data),
             "month_options": month_options,
             "selected_month": selected_month_value,
@@ -1380,14 +1394,21 @@ def category_report(request):
         .filter(
             user=request.user,
             is_deleted=False,
-            category__category_type=Category.CategoryType.EXPENSE
         )
+        .exclude(category__category_type=Category.CategoryType.TRANSFER)
         .values(
-            "category__name"
+            "category__name",
+            "category__category_type",
         )
         .annotate(
-            total=Sum("amount")
-        )
+            total=Sum(
+                    Case(
+                        When(entry_type=EntryType.CREDIT, then=-F("amount")),
+                        default=F("amount"),
+                        output_field=DecimalField(),
+                    )
+                )
+            )
         .order_by("-total")
     )
 
@@ -1395,16 +1416,18 @@ def category_report(request):
         {
             "name": item["category__name"] or "Uncategorized",
             "total": float(item["total"] or 0),
+            "type": item["category__category_type"],
         }
-        for item in categories
-    ]
-
+         for item in categories
+    ]    
+    print(chart_data)
     return render(
         request,
         "expense/reports/category.html",
         {
             "categories": categories,
-            "total_expense": sum(item["total"] for item in categories),
+            "total_expense": sum(item["total"] for item in categories if item["category__category_type"] == Category.CategoryType.EXPENSE),
+            "total_income": abs(sum(item["total"] for item in categories if item["category__category_type"] == Category.CategoryType.INCOME)),
             "chart_data": json.dumps(chart_data),
         },
     )

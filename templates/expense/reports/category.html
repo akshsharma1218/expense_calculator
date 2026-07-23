@@ -23,6 +23,11 @@
         <div class="kpi-label">Total Expenses</div>
         <div class="kpi-value" style="color:var(--danger)" data-count="{{ total_expense }}" data-prefix="₹"></div>
     </div>
+    <div class="kpi-card kpi-income" data-animate>
+        <div class="kpi-icon"><i class="bi bi-tags"></i></div>
+        <div class="kpi-label">Total Income</div>
+        <div class="kpi-value" style="color:var(--success)" data-count="{{ total_income }}" data-prefix="₹"></div>
+    </div>
 </div>
 
 <div class="row g-4 mb-4">
@@ -73,9 +78,10 @@
 <script>
 document.addEventListener('DOMContentLoaded', function () {
     const data = {{ chart_data|safe }};
+    console.log(data);
     FinFlowCharts.renderDonut('categoryDonut', data, { totalLabel: 'Total' });
-    FinFlowCharts.renderBar('categoryBar', data, { height: 300 });
-    FinFlowTables.initReportTable('categoryTable', data);
+    FinFlowCharts.renderBar('categoryBar', data, { height: 300 }, 'expense');
+    FinFlowTables.initReportTable('categoryTable', data, 'expense');
 });
 </script>
 {% endif %}

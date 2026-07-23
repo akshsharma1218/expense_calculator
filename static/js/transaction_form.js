@@ -46,7 +46,6 @@ document.addEventListener("DOMContentLoaded", function () {
     });
 
     tbody.addEventListener("input", calculateTotal);
-
     function getActiveRows() {
         return Array.from(tbody.querySelectorAll(".item-row")).filter(
             (row) => !row.classList.contains("marked-delete")
@@ -85,6 +84,38 @@ document.addEventListener("DOMContentLoaded", function () {
         });
         totalForms.value = rows.length;
     }
+
+    function submitForm(e) {
+        const form = e.target.closest("form");
+        console.log("Form found:", form);
+        if (form) {
+            const rows = getActiveRows();
+            let totalAmount = document.getElementById("id_amount")?.value;
+            console.log("Total Amount:", totalAmount);
+            if(rows.length === 1) {
+                let row = rows[0];
+                row.querySelectorAll("input, select, textarea").forEach((field) => {
+                    if (field.name && field.name.endsWith("-name") && !field.value) {
+                        field.value = "Item";
+                    }
+                    else if (field.name && field.name.endsWith("-quantity") && !field.value) {
+                        field.value = 1;
+                    }
+                    else if (field.name && field.name.endsWith("-unit_price") && !field.value) {
+                        field.value = Number(totalAmount);
+                    }
+                    else if (field.name && field.name.endsWith("-total_price") && !field.value) {
+                        field.value = Number(totalAmount);
+                    }
+                });
+            }
+            setTimeout(() => {
+                form.submit();
+            }, 10000);
+        }
+    }
+
+    window.submitForm = submitForm;
 
     calculateTotal();
 });

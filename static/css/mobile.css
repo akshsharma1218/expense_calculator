@@ -96,6 +96,7 @@
   .hero-card {
     padding: 12px;
     margin-bottom: 12px;
+    overflow: hidden !important;
   }
 
   .hero-card .row {

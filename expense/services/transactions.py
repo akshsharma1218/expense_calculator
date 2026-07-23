@@ -1,8 +1,7 @@
 from decimal import Decimal
 
 from django.db import transaction as db_transaction
-
-from ..models import Account, EntryType, Transaction, TransactionItem
+from ..models import Account, EntryType, Transaction, TransactionItem, Category
 from .balance import BalanceService
 from .base import BaseService, ServiceError
 from .ledger import LedgerService
@@ -15,7 +14,7 @@ EDITABLE_FIELDS = frozenset({
     "description",
     "transaction_date",
     "account",
-    "entry_type",
+    "refund",
 })
 
 
@@ -28,6 +27,12 @@ class TransactionService(BaseService):
             .select_for_update()
             .get(pk=account_id)
         )
+
+    @staticmethod
+    def normalize_entry_type(entry_type, refund=False):
+        if refund:
+            return EntryType.DEBIT if entry_type == EntryType.CREDIT else EntryType.CREDIT
+        return entry_type
 
     @staticmethod
     def _set_items(transaction_obj, items):
@@ -56,14 +61,18 @@ class TransactionService(BaseService):
     @staticmethod
     def validate_amount(amount, items=None):
         amount = Decimal(amount)
-
+        TransactionService._log_info(
+            "Validating transaction amount",
+            amount=amount,
+            items=items,
+        )
         if items:
             calculated_amount = sum(
                 (item["total_price"] for item in items),
                 Decimal("0.00"),
             )
 
-            if calculated_amount != amount:
+            if abs(calculated_amount) != amount:
                 raise ServiceError(
                     "Transaction amount does not match transaction items."
                 )
@@ -114,6 +123,7 @@ class TransactionService(BaseService):
         tags=None,
         items=None,
         is_group_expense=False,
+        refund=None
     ):
         TransactionService._log_info(
             "Transaction create started",
@@ -135,13 +145,18 @@ class TransactionService(BaseService):
 
         amount= TransactionService.validate_amount(amount, items)
 
+        normalized_entry_type = TransactionService.normalize_entry_type(
+            category.normal_side,
+            refund=refund,
+        )
+        
         txn = Transaction.objects.create(
             user=user,
             account=account,
             category=category,
             merchant=merchant,
             amount=amount,
-            entry_type=category.normal_side,
+            entry_type=normalized_entry_type,
             transaction_date=transaction_date,
             description=description,
             is_group_expense=is_group_expense,
@@ -170,6 +185,7 @@ class TransactionService(BaseService):
         transaction_obj,
         items=None,
         tags=None,
+        refund=None,
         **data,
     ):
         TransactionService._log_info(
@@ -186,14 +202,21 @@ class TransactionService(BaseService):
             raise ServiceError(
                 f"Cannot update immutable fields: {', '.join(sorted(invalid))}"
             )
+        
+        original_transaction = Transaction.objects.get(pk=transaction_obj.pk)
+        original_account = TransactionService._lock_account(original_transaction.account_id)
+        account = TransactionService._lock_account(data.get("account", transaction_obj.account).id)
 
-        account = TransactionService._lock_account(transaction_obj.account_id)
+        TransactionService._log_debug(
+            "Transaction update account locked",
+            transaction_id=getattr(transaction_obj, "id", None),
+            original_account_id=getattr(original_account, "id", None),
+            new_account_id=getattr(account, "id", None),
+        )
 
         category = data.get("category", transaction_obj.category)
         merchant = data.get("merchant", transaction_obj.merchant)
 
-        if category.normal_side != transaction_obj.entry_type:
-            raise ServiceError("Cannot change transaction type.")
 
         TransactionService.validate_resources(
             user=transaction_obj.user,
@@ -204,54 +227,43 @@ class TransactionService(BaseService):
             items=items,
         )
         
-        original_entry_type = transaction_obj.entry_type
-        
-        if items is not None:
-            if not items:
-                raise ServiceError("At least one transaction item is required.")
-
+        if items:
             if "amount" in data:
                 data["amount"] = TransactionService.validate_amount(data["amount"], items)
             else:
-                data["amount"] = sum(
-                    (item["total_price"] for item in items),
-                    Decimal("0.00"),
-                )
-        else:
-            data["amount"] = TransactionService.validate_amount(
-                data.get("amount", transaction_obj.amount)
-            )
+                raise ServiceError("Amount is required when updating transaction items.")
 
-        original_entry = LedgerService.latest_posted_entry(transaction_obj)
+        original_entry = LedgerService.latest_posted_entry(transaction_obj, account=original_account)
 
         TransactionService._log_debug(
             "Transaction reverse phase started",
             transaction_id=getattr(transaction_obj, "id", None),
-            account_id=getattr(account, "id", None),
+            account_id=getattr(original_account, "id", None),
             original_entry_id=getattr(original_entry, "id", None),
             original_entry_type=original_entry.entry_type,
             original_amount=original_entry.amount,
-            account_balance_before_reverse=account.current_balance,
+            account_balance_before_reverse=original_account.current_balance,
         )
 
         BalanceService.reverse(
-            account=account,
+            account=original_account,
             entry_type=original_entry.entry_type,
             amount=original_entry.amount,
         )
 
-        account.refresh_from_db(fields=["current_balance"])
+        original_account.refresh_from_db(fields=["current_balance"])
 
         TransactionService._log_debug(
             "Transaction reverse balance applied",
             transaction_id=getattr(transaction_obj, "id", None),
-            account_id=getattr(account, "id", None),
-            account_balance_after_reverse=account.current_balance,
+            account_id=getattr(original_account, "id", None),
+            account_balance_after_reverse=original_account.current_balance,
         )
 
         reversal_entry = LedgerService.append_reversal(
             transaction_obj,
             original_entry=original_entry,
+            account=original_account,
         )
 
         TransactionService._log_debug(
@@ -268,13 +280,22 @@ class TransactionService(BaseService):
         for field, value in data.items():
             setattr(transaction_obj, field, value)
 
+        print(f"Updating transaction {transaction_obj.id} with data: {data} and refund as {refund}")
+
+
         if data:
+            if refund is not None:
+                transaction_obj.entry_type = TransactionService.normalize_entry_type(
+                    category.normal_side,
+                    refund=refund,
+                )
+                data["entry_type"] = transaction_obj.entry_type
             transaction_obj.save(update_fields=list(data.keys()))
 
         if tags is not None:
             transaction_obj.tags.set(tags)
 
-        if items is not None:
+        if items:
             TransactionService._set_items(transaction_obj, items)
 
         TransactionService._apply_and_record(transaction_obj, account)
@@ -300,7 +321,7 @@ class TransactionService(BaseService):
             raise ServiceError("Transaction already deleted.")
 
         account = TransactionService._lock_account(transaction_obj.account_id)
-        original_entry = LedgerService.latest_posted_entry(transaction_obj)
+        original_entry = LedgerService.latest_posted_entry(transaction_obj, account=account)
 
         TransactionService._log_debug(
             "Transaction delete reverse phase started",
