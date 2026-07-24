@@ -110,6 +110,17 @@ class TransactionService(BaseService):
                     raise ServiceError("Invalid item total price.")
 
     @staticmethod
+    def create_default_items_from_transaction(transaction_obj):
+        return [
+            {
+                "name": transaction_obj.description or "Item",
+                "quantity": 1,
+                "unit_price": transaction_obj.amount,
+                "total_price": transaction_obj.amount,
+            }
+        ]
+    
+    @staticmethod
     @db_transaction.atomic
     def create_transaction(
         *,
@@ -164,6 +175,9 @@ class TransactionService(BaseService):
 
         if tags is not None:
             txn.tags.set(tags)
+
+        if not items:
+            items = TransactionService.create_default_items_from_transaction(txn)
 
         if items:
             TransactionService._set_items(txn, items)
@@ -226,7 +240,10 @@ class TransactionService(BaseService):
             tags=tags if tags is not None else transaction_obj.tags.all(),
             items=items,
         )
-        
+
+        if not items:
+            items = TransactionService.create_default_items_from_transaction(transaction_obj)
+
         if items:
             if "amount" in data:
                 data["amount"] = TransactionService.validate_amount(data["amount"], items)

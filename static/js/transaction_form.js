@@ -87,16 +87,15 @@ document.addEventListener("DOMContentLoaded", function () {
 
     function submitForm(e) {
         const form = e.target.closest("form");
-        console.log("Form found:", form);
         if (form) {
             const rows = getActiveRows();
             let totalAmount = document.getElementById("id_amount")?.value;
-            console.log("Total Amount:", totalAmount);
+            let description = document.getElementById("id_description")?.value;
             if(rows.length === 1) {
                 let row = rows[0];
                 row.querySelectorAll("input, select, textarea").forEach((field) => {
                     if (field.name && field.name.endsWith("-name") && !field.value) {
-                        field.value = "Item";
+                        field.value = description ? description : "Item";
                     }
                     else if (field.name && field.name.endsWith("-quantity") && !field.value) {
                         field.value = 1;

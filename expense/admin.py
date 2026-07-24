@@ -15,6 +15,7 @@ from .models import (
     GroupExpenseSplit,
     GroupBalance,
     Settlement,
+    Transfer,
 )
 
 
@@ -126,6 +127,25 @@ class TransactionAdmin(admin.ModelAdmin):
         TransactionItemInline
     ]
 
+@admin.register(Transfer)
+class TransferAdmin(admin.ModelAdmin):
+    list_display = (
+        "user",
+        "transfer_type",
+        "debit_transaction",
+        "credit_transaction",
+        "notes",
+        "is_deleted",
+    )
+
+    list_filter = (
+        "transfer_type",
+        "is_deleted",
+    )
+
+    search_fields = (
+        "notes",
+    )
 
 @admin.register(TransactionItem)
 class TransactionItemAdmin(admin.ModelAdmin):

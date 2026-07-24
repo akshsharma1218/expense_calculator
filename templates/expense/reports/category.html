@@ -47,7 +47,7 @@
                 <strong>Category Comparison</strong>
             </div>
             <div class="glass-card-body">
-                <div id="categoryBar" class="chart-container"></div>
+                <div id="investmentBar" class="chart-container"></div>
             </div>
         </div>
     </div>
@@ -78,9 +78,9 @@
 <script>
 document.addEventListener('DOMContentLoaded', function () {
     const data = {{ chart_data|safe }};
-    console.log(data);
+    const investmentData = {{ investment_data|safe }};
     FinFlowCharts.renderDonut('categoryDonut', data, { totalLabel: 'Total' });
-    FinFlowCharts.renderBar('categoryBar', data, { height: 300 }, 'expense');
+    FinFlowCharts.renderBar('investmentBar', investmentData, { height: 300 });
     FinFlowTables.initReportTable('categoryTable', data, 'expense');
 });
 </script>

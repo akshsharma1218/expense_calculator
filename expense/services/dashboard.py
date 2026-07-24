@@ -57,6 +57,26 @@ class DashboardService(BaseService):
         )
 
     @staticmethod
+    def monthly_investment(*, user, month, year):
+        return (
+            Transaction.objects.filter(
+                user=user,
+                transaction_date__month=month,
+                transaction_date__year=year,
+                is_deleted=False,
+            )
+            .filter(account__account_type=Account.AccountType.INVESTMENT)
+            .aggregate(total=Sum(
+                        Case(
+                            When(entry_type=EntryType.CREDIT, then=F("amount")),
+                            default=-F("amount"),
+                            output_field=DecimalField(),
+                        )
+                    ))["total"]
+            or Decimal("0.00")
+        )
+
+    @staticmethod
     def recent_transactions(*, user, limit=10):
         return (
             Transaction.objects.select_related("account", "category", "merchant")
@@ -104,6 +124,9 @@ class DashboardService(BaseService):
             expense = DashboardService.monthly_expense(
                 user=user, month=month, year=year
             )
+            investment = DashboardService.monthly_investment(
+                user=user, month=month, year=year
+            )
             trend.append(
                 {
                     "month": month,
@@ -111,6 +134,7 @@ class DashboardService(BaseService):
                     "label": f"{month_abbr[month]} {year}",
                     "income": float(income),
                     "expense": float(expense),
+                    "investment": float(investment),
                     "savings": float(income - expense),
                 }
             )
@@ -162,8 +186,11 @@ class DashboardService(BaseService):
             "Dashboard account distribution requested",
             user_id=getattr(user, "id", None),
         )
-        accounts = Account.objects.filter(user=user, is_active=True).only(
-            "name", "current_balance", "account_type"
+        accounts = (
+            Account.objects.filter(user=user, is_active=True)
+            .exclude(account_type=Account.AccountType.INVESTMENT)
+            .only("name", "current_balance", "account_type")
+            .order_by("current_balance")
         )
         return [
             {

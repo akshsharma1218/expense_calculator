@@ -54,8 +54,9 @@ window.FinFlowCharts = (function () {
     if (!el || !data || !data.length || typeof ApexCharts === 'undefined') return;
 
     const labels = data.map((d) => d.label);
-    const income = data.map((d) => d.income);
     const expense = data.map((d) => d.expense);
+    const investment = data.map((d) => d.investment);
+    const income = data.map((d) => d.income);
 
     const chart = new ApexCharts(el, {
       ...baseOptions,
@@ -63,8 +64,9 @@ window.FinFlowCharts = (function () {
       series: [
         { name: 'Income', data: income },
         { name: 'Expense', data: expense },
+        { name: 'Investment', data: investment },
       ],
-      colors: ['#34d399', '#f87171'],
+      colors: ['#34d399', '#f87171', '#818cf8'],
       fill: {
         type: 'gradient',
         gradient: {
@@ -154,12 +156,11 @@ window.FinFlowCharts = (function () {
     return chart;
   }
 
-  function renderBar(containerId, data, options = {}, data_type) {
+  function renderBar(containerId, data, options = {}) {
     const el = document.getElementById(containerId);
     if (!el || !data || !data.length || typeof ApexCharts === 'undefined') return;
-    data = data.filter((d) => d.type === data_type);
     const labels = data.map((d) => d.name);
-    const values = data.map((d) => Math.abs(d.total));
+    const values = data.map((d) => d.total);
 
     const chart = new ApexCharts(el, {
       ...baseOptions,

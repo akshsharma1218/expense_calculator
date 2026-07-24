@@ -12,6 +12,7 @@ window.FinFlowTables = (function () {
       bank: '<span class="badge" style="background:rgba(99,102,241,0.15);color:#818cf8">Bank</span>',
       cash: '<span class="badge badge-income">Cash</span>',
       credit_card: '<span class="badge badge-transfer">Credit Card</span>',
+      investment: '<span class="badge badge-investment">Investment</span>',
       wallet: '<span class="badge" style="background:rgba(34,211,238,0.15);color:#22d3ee">Wallet</span>',
     };
     return map[type] || `<span class="badge">${type}</span>`;
@@ -81,6 +82,13 @@ window.FinFlowTables = (function () {
           hozAlign: 'right',
           sorter: 'number',
           formatter: (cell) => formatAmount(cell, cell.getData().type),
+        },
+        {
+          title: 'Description',
+          field: 'description',
+          hozAlign: 'left',
+          sorter: 'string',
+          formatter: (cell) => cell.getValue(),
         },
         {
           title: 'Actions',

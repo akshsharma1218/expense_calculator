@@ -65,7 +65,7 @@
     <div class="col-lg-5" data-animate>
         <div class="glass-card h-100">
             <div class="glass-card-header">
-                <strong>By Category</strong>
+                <strong>Investments</strong>
             </div>
             <div class="glass-card-body">
                 <div id="reportBar" class="chart-container"></div>
@@ -113,8 +113,10 @@
 <script>
 document.addEventListener('DOMContentLoaded', function () {
     const data = {{ chart_data|safe }};
+    const investmentData = {{ investment_data|safe }};
+    console.log('Investment Data:', investmentData);
     FinFlowCharts.renderDonut('reportDonut', data, { totalLabel: 'Total Spent' });
-    FinFlowCharts.renderBar('reportBar', data, { height: 300 }, 'expense');
+    FinFlowCharts.renderBar('reportBar', investmentData, { height: 300 });
     FinFlowCharts.renderBarHor('reportIncome', data, { height: 300 }, 'income');
     FinFlowTables.initReportTable('reportTable', data);
 });

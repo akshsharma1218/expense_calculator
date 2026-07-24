@@ -145,7 +145,7 @@ class BulkTransactionUploadService(BaseService):
     # Prefetch
     #####################################################################
 
-    def load_accounts(self, rows):
+    def load_accounts(self, rows, user):
         """Load and validate accounts from rows."""
         names = {
             r["account"].strip()
@@ -155,7 +155,7 @@ class BulkTransactionUploadService(BaseService):
 
         accounts = {
             a.name: a
-            for a in Account.objects.filter(name__in=names)
+            for a in Account.objects.filter(name__in=names, user = user)
         }
 
         missing = names - accounts.keys()
@@ -319,7 +319,7 @@ class BulkTransactionUploadService(BaseService):
         self.validate_rows(rows)
 
         # Load all required resources with single queries
-        account_cache = self.load_accounts(rows)
+        account_cache = self.load_accounts(rows, user)
         category_cache = self.load_categories(rows, user)
         merchant_cache = self.load_merchants(rows, user)
 
@@ -342,11 +342,10 @@ class BulkTransactionUploadService(BaseService):
                     transaction_date=row["transaction_date"],
                     description=row.get("description", ""),
                     is_group_expense=False,
-                    items=self.create_item(amount),
+                    items=None,
                     tags=None,
                     refund = amount < 0,
                 )
-
                 created += 1
                 
             except ServiceError as e:

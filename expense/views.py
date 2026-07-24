@@ -485,7 +485,9 @@ def account_list(request):
         Account.objects.filter(
             user=request.user,
             is_active=True,
-        ).only("id", "name", "account_type", "opening_balance", "current_balance", "created_at")
+        )
+        .exclude(account_type=Account.AccountType.INVESTMENT)
+        .only("id", "name", "account_type", "opening_balance", "current_balance", "created_at")
     )
 
     total_balance = sum(
@@ -657,14 +659,6 @@ def transaction_create(request):
         if form.is_valid() and formset.is_valid():
 
             items = _collect_transaction_items(formset)
-
-            if not items:
-                items = [{
-                    "name": "Item",
-                    "quantity": 1,
-                    "unit_price": form.cleaned_data["amount"],
-                    "total_price": form.cleaned_data["amount"],
-                }]
             try:
                 shared = {
                     "user": request.user,
@@ -746,22 +740,18 @@ def transaction_update(request, pk):
         if form.is_valid() and formset.is_valid():
 
             items = _collect_transaction_items(formset)
-
-            if not items:
-                _flash_error(request, "Add at least one item.")
+            try:
+                TransactionService.update_transaction(
+                    transaction_obj=transaction,
+                    items=items,
+                    tags=form.cleaned_data["tags"],
+                    **_transaction_fields_from_form(form),
+                )
+            except ServiceError as exc:
+                _flash_error(request, str(exc), exc_info=True)
             else:
-                try:
-                    TransactionService.update_transaction(
-                        transaction_obj=transaction,
-                        items=items,
-                        tags=form.cleaned_data["tags"],
-                        **_transaction_fields_from_form(form),
-                    )
-                except ServiceError as exc:
-                    _flash_error(request, str(exc), exc_info=True)
-                else:
-                    _flash_success(request, "Transaction updated.")
-                    return redirect("transaction-list")
+                _flash_success(request, "Transaction updated.")
+                return redirect("transaction-list")
 
     else:
 
@@ -1371,6 +1361,39 @@ def monthly_report(request):
         }
         for item in data
     ]
+
+    investment_list = list(
+        Transaction.objects
+            .filter(
+                user=request.user,
+                is_deleted=False,
+                category__category_type=Category.CategoryType.TRANSFER,
+                transaction_date__month=selected_month_date.month,
+                transaction_date__year=selected_month_date.year,
+                account__account_type=Account.AccountType.INVESTMENT,
+            )
+            .values(
+                "account__name",
+            )
+            .annotate(
+                total=Sum(
+                        Case(
+                            When(entry_type=EntryType.CREDIT, then=F("amount")),
+                            default=-F("amount"),
+                            output_field=DecimalField(),
+                        )
+                    )
+                )
+            .order_by("-total")
+        )
+    investment_data = [
+        {
+            "name": item["account__name"] or "Uncategorized",
+            "total": float(item["total"] or 0),
+        }
+        for item in investment_list
+    ]
+    print(investment_data)
     return render(
         request,
         "expense/reports/monthly.html",
@@ -1378,6 +1401,7 @@ def monthly_report(request):
             "data": data,
             "total_expense": sum(item["total"] for item in data if item["category__category_type"] == Category.CategoryType.EXPENSE),
             "total_income": abs(sum(item["total"] for item in data if item["category__category_type"] == Category.CategoryType.INCOME)),
+            "investment_data": json.dumps(investment_data),
             "chart_data": json.dumps(chart_data),
             "month_options": month_options,
             "selected_month": selected_month_value,
@@ -1420,7 +1444,37 @@ def category_report(request):
         }
          for item in categories
     ]    
-    print(chart_data)
+
+    investment_list = list(
+        Transaction.objects
+            .filter(
+                user=request.user,
+                is_deleted=False,
+                category__category_type=Category.CategoryType.TRANSFER,
+                account__account_type=Account.AccountType.INVESTMENT,
+            )
+            .values(
+                "account__name",
+            )
+            .annotate(
+                total=Sum(
+                        Case(
+                            When(entry_type=EntryType.CREDIT, then=F("amount")),
+                            default=-F("amount"),
+                            output_field=DecimalField(),
+                        )
+                    )
+                )
+            .order_by("-total")
+        )
+    investment_data = [
+        {
+            "name": item["account__name"] or "Uncategorized",
+            "total": float(item["total"] or 0),
+        }
+        for item in investment_list
+    ]
+
     return render(
         request,
         "expense/reports/category.html",
@@ -1428,6 +1482,7 @@ def category_report(request):
             "categories": categories,
             "total_expense": sum(item["total"] for item in categories if item["category__category_type"] == Category.CategoryType.EXPENSE),
             "total_income": abs(sum(item["total"] for item in categories if item["category__category_type"] == Category.CategoryType.INCOME)),
+            "investment_data": json.dumps(investment_data),
             "chart_data": json.dumps(chart_data),
         },
     )
