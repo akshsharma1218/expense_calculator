@@ -185,17 +185,52 @@ urlpatterns += [
         views.group_detail,
         name="group-detail",
     ),
+    path(
+        "groups/<uuid:pk>/delete/",
+        views.group_delete,
+        name="group-delete",
+    ),
 
     path(
         "groups/<uuid:pk>/settle/",
         views.settlement_create,
         name="group-settlement",
     ),
+    path(
+        "groups/<uuid:pk>/settle/<int:receiver_id>/",
+        views.settlement_pay,
+        name="group-settlement-pay",
+    ),
+    path(
+        "groups/<uuid:pk>/settlements/<uuid:settlement_id>/record-received/",
+        views.settlement_record_received,
+        name="group-settlement-record-received",
+    ),
+    path(
+        "groups/<uuid:pk>/members/<int:user_id>/remove/",
+        views.group_member_remove,
+        name="group-member-remove",
+    ),
 
     path(
         "groups/invitations/",
         views.invitation_list,
         name="group-invitations",
+    ),
+    path(
+        "notifications/",
+        views.notification_list,
+        name="notification-list",
+    ),
+    path(
+        "notifications/<uuid:notification_id>/read/",
+        views.notification_mark_read,
+        name="notification-mark-read",
+    ),
+    path(
+        "notifications/read-all/",
+        views.notification_mark_all_read,
+        name="notification-mark-all-read",
     ),
 
     path(

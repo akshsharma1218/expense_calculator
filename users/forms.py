@@ -184,3 +184,16 @@ class UserProfileForm(forms.ModelForm):
                 "readonly": True,
             }),
         }
+
+    def clean_phone_number(self):
+        phone_number = self.cleaned_data.get("phone_number")
+        if not phone_number:
+            return phone_number
+        if not phone_number.replace("+", "").replace("-", "").isdigit():
+            raise ValidationError("Phone number must contain only digits, +, or -.")
+        existing = CustomUser.objects.filter(phone_number=phone_number).exclude(
+            pk=self.instance.pk
+        )
+        if existing.exists():
+            raise ValidationError("This phone number is already in use.")
+        return phone_number

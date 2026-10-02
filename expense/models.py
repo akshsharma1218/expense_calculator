@@ -1,6 +1,7 @@
 # expense/models.py
 
 import uuid
+from datetime import timedelta
 from decimal import Decimal
 
 from django.conf import settings
@@ -9,6 +10,10 @@ from django.db.models import Sum
 from django.utils import timezone
 
 User = settings.AUTH_USER_MODEL
+
+
+def notification_expiry():
+    return timezone.now() + timedelta(days=7)
 
 
 class EntryType(models.TextChoices):
@@ -637,6 +642,28 @@ class GroupInvitation(BaseModel):
         return f"{self.invited_user} -> {self.group} ({self.status})"
 
 
+class UserNotification(BaseModel):
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="notifications",
+    )
+    event = models.CharField(max_length=100)
+    message = models.CharField(max_length=500)
+    data = models.JSONField(default=dict, blank=True)
+    is_read = models.BooleanField(default=False, db_index=True)
+    expires_at = models.DateTimeField(default=notification_expiry, db_index=True)
+
+    class Meta:
+        db_table = "user_notification"
+        indexes = [
+            models.Index(fields=["user", "expires_at"]),
+        ]
+
+    def __str__(self):
+        return f"{self.user}: {self.message}"
+
+
 # ============================================================
 # Group Expense
 # ============================================================
@@ -756,11 +783,35 @@ class Settlement(BaseModel):
         decimal_places=2
     )
 
+    payer_transaction = models.OneToOneField(
+        Transaction,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="payer_settlement",
+    )
+
+    receiver_transaction = models.OneToOneField(
+        Transaction,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="receiver_settlement",
+    )
+
+    is_completed = models.BooleanField(default=True)
+
     settlement_date = models.DateField(
         default=timezone.now
     )
 
     notes = models.TextField(blank=True)
+
+    splits = models.ManyToManyField(
+        GroupExpenseSplit,
+        through="SettlementAllocation",
+        related_name="settlements",
+    )
 
     class Meta:
         db_table = "settlement"
@@ -769,6 +820,38 @@ class Settlement(BaseModel):
             models.Index(fields=["group"]),
             models.Index(fields=["payer"]),
             models.Index(fields=["receiver"]),
+        ]
+
+
+class SettlementAllocation(BaseModel):
+
+    id = models.UUIDField(
+        primary_key=True,
+        default=uuid.uuid4,
+        editable=False,
+    )
+
+    settlement = models.ForeignKey(
+        Settlement,
+        on_delete=models.CASCADE,
+        related_name="allocations",
+    )
+
+    split = models.ForeignKey(
+        GroupExpenseSplit,
+        on_delete=models.CASCADE,
+        related_name="settlement_allocations",
+    )
+
+    amount = models.DecimalField(max_digits=15, decimal_places=2)
+
+    class Meta:
+        db_table = "settlement_allocation"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["settlement", "split"],
+                name="uq_settlement_split_allocation",
+            )
         ]
 
 

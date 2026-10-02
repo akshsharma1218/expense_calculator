@@ -19,6 +19,12 @@ from .models import (
     Budget,
     EntryType,
     FavoriteDescription,
+    GroupExpenseSplit,
+)
+
+SETTLEMENT_CATEGORY_NAMES = (
+    "Group Settlement Paid",
+    "Group Settlement Received",
 )
 
     
@@ -63,6 +69,8 @@ class QuickTransactionForm(forms.Form):
                 | Q(merchant__created_by=user),
             ).exclude(
                 category__category_type__in=(Category.CategoryType.TRANSFER, "refund"),
+            ).exclude(
+                category__name__in=SETTLEMENT_CATEGORY_NAMES,
             ).select_related("account", "category", "merchant").order_by("name")
         else:
             favorites = FavoriteDescription.objects.none()
@@ -106,6 +114,7 @@ class FavoriteDescriptionForm(forms.ModelForm):
         self.fields["category"].queryset = (
             (Category.objects.filter(is_system=True) | Category.objects.filter(created_by=user))
             .exclude(category_type__in=(Category.CategoryType.TRANSFER, "refund"))
+            .exclude(name__in=SETTLEMENT_CATEGORY_NAMES)
             .order_by("name")
             if user else Category.objects.none()
         )
@@ -213,6 +222,7 @@ class TransactionForm(forms.ModelForm):
         self.fields["category"].queryset = (
             category_qs
             .exclude(category_type__in=(Category.CategoryType.TRANSFER, "refund"))
+            .exclude(name__in=SETTLEMENT_CATEGORY_NAMES)
             .order_by("name")
         )
 
@@ -279,12 +289,6 @@ class SplitTransactionForm(forms.Form):
         widget=forms.Select(attrs={"class": "form-select"}),
         empty_label="Choose a group",
     )
-    paid_by = forms.ModelChoiceField(
-        queryset=User.objects.none(),
-        widget=forms.Select(attrs={"class": "form-select"}),
-        label="Paid by",
-    )
-
     def __init__(self, *args, user=None, transaction=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.user = user
@@ -297,20 +301,19 @@ class SplitTransactionForm(forms.Form):
         group_id = self.data.get("group") or self.initial.get("group")
         group = self.fields["group"].queryset.filter(pk=group_id).first()
         self.members = list(group.members.select_related("user").order_by("user__username")) if group else []
-        member_ids = [member.user_id for member in self.members]
-        self.fields["paid_by"].queryset = (
-            User.objects.filter(pk__in=member_ids).order_by("email")
-            if group else User.objects.none()
-        )
         if group:
+            owed_members = [
+                member for member in self.members
+                if member.user_id != getattr(user, "pk", None)
+            ]
             self.fields["selected_members"] = forms.MultipleChoiceField(
                 choices=[
                     (str(member.user_id), member.user.get_full_name() or member.user.username)
-                    for member in self.members
+                    for member in owed_members
                 ],
                 required=False,
             )
-            for member in self.members:
+            for member in owed_members:
                 self.fields[f"share_{member.user_id}"] = forms.DecimalField(
                     required=False,
                     min_value=Decimal("0.01"),
@@ -320,15 +323,18 @@ class SplitTransactionForm(forms.Form):
                         attrs={"class": "form-control split-custom-amount", "step": "0.01"}
                     ),
                 )
-        if user and group and group.members.filter(user=user).exists():
-            self.fields["paid_by"].initial = user
+                initial_amount = self.initial.get(f"share_{member.user_id}")
+                if initial_amount is not None:
+                    self.fields[f"share_{member.user_id}"].initial = initial_amount
+            selected_members = self.initial.get("selected_members")
+            if selected_members is not None:
+                self.fields["selected_members"].initial = selected_members
 
     def clean(self):
         cleaned = super().clean()
         group = cleaned.get("group")
-        payer = cleaned.get("paid_by")
-        if group and payer and not group.members.filter(user=payer).exists():
-            self.add_error("paid_by", "The payer must be a member of the selected group.")
+        if group and self.user and not group.members.filter(user=self.user).exists():
+            self.add_error("group", "You must be a member of the selected group.")
 
         custom_shares = []
         if cleaned.get("split_mode") == "custom" and group and self.transaction:
@@ -352,8 +358,11 @@ class SplitTransactionForm(forms.Form):
                     "amount": str(amount),
                     "selected": True,
                 })
-            if selected_ids and total != self.transaction.amount:
-                self.add_error(None, "Share amounts must add up to the transaction total.")
+            if selected_ids and total > self.transaction.amount:
+                self.add_error(
+                    None,
+                    "Amounts owed by group members cannot exceed the transaction total.",
+                )
         cleaned["custom_shares"] = custom_shares
         return cleaned
 
@@ -831,36 +840,29 @@ class GroupExpenseForm(forms.Form):
         self.fields["transaction"].empty_label = None
 
 
+class SettlementAccountChoiceField(forms.ModelChoiceField):
+    def label_from_instance(self, account):
+        return (
+            f"{account.name} · {account.get_account_type_display()} · "
+            f"Balance ₹{account.current_balance:.2f}"
+        )
+
+
 class SettlementForm(forms.Form):
 
-    receiver = forms.ModelChoiceField(
-        queryset=User.objects.none(),
-        widget=forms.Select(
-            attrs={
-                "class": "form-select",
-            }
-        ),
+    account = SettlementAccountChoiceField(
+        queryset=Account.objects.none(),
+        widget=forms.Select(attrs={"class": "form-select settlement-account-select"}),
+        label="Paid from",
     )
-
-    amount = forms.DecimalField(
-        min_value=0.01,
-        max_digits=15,
-        decimal_places=2,
-        widget=forms.NumberInput(
-            attrs={
-                "class": "form-control",
-            }
-        ),
+    split_ids = forms.MultipleChoiceField(
+        choices=(),
+        widget=forms.CheckboxSelectMultiple,
+        label="Expenses to settle",
     )
-
     notes = forms.CharField(
         required=False,
-        widget=forms.Textarea(
-            attrs={
-                "class": "form-control",
-                "rows": 3,
-            }
-        ),
+        widget=forms.TextInput(attrs={"class": "form-control"}),
     )
 
     def __init__(
@@ -868,54 +870,95 @@ class SettlementForm(forms.Form):
         *args,
         group=None,
         payer=None,
+        receiver=None,
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
 
         self.group = group
         self.payer = payer
+        self.receiver = receiver
+        self.split_amounts = {}
+        self.split_options = []
 
-        if not group or not payer:
+        if not group or not payer or not receiver:
             return
 
-        self.fields["receiver"].queryset = (
-            User.objects.filter(
-                id__in=group.members.values_list(
-                    "user_id",
-                    flat=True,
-                )
+        self.fields["account"].queryset = Account.objects.filter(
+            user=payer,
+            is_active=True,
+        ).order_by("name")
+        self.fields["account"].empty_label = "Choose an account"
+
+        splits = (
+            GroupExpenseSplit.objects
+            .filter(
+                expense__group=group,
+                expense__paid_by=receiver,
+                user=payer,
+                status=GroupExpenseSplit.Status.PENDING,
             )
-            .exclude(
-                id=payer.id,
-            )
-            .order_by("username")
+            .exclude(user=receiver)
+            .select_related("expense__transaction")
+            .prefetch_related("settlement_allocations")
+            .order_by("created_at")
         )
-        self.fields["receiver"].empty_label = None
+        choices = []
+        for split in splits:
+            allocated = sum(
+                (allocation.amount for allocation in split.settlement_allocations.all()),
+                Decimal("0.00"),
+            )
+            remaining = split.share_amount - allocated
+            if remaining <= 0:
+                continue
+            self.split_amounts[str(split.pk)] = remaining
+            description = split.expense.transaction.description or "Group expense"
+            self.split_options.append(
+                {
+                    "id": str(split.pk),
+                    "description": description,
+                    "amount": remaining,
+                }
+            )
+            choices.append(
+                (str(split.pk), f"{description} — ₹{remaining:.2f}")
+            )
+        self.fields["split_ids"].choices = choices
+        self.fields["split_ids"].initial = [value for value, _ in choices]
+        selected_ids = self["split_ids"].value() or []
+        selected_ids = {str(value) for value in selected_ids}
+        for option in self.split_options:
+            option["selected"] = option["id"] in selected_ids
 
     def clean(self):
         cleaned = super().clean()
-
-        receiver = cleaned.get("receiver")
-        amount = cleaned.get("amount")
-
-        if amount and amount <= 0:
-            raise ValidationError(
-                "Amount must be greater than zero."
-            )
-
-        if (
-            self.group
-            and receiver
-            and not self.group.members.filter(
-                user=receiver,
-            ).exists()
-        ):
-            raise ValidationError(
-                "Invalid receiver."
-            )
-
+        selected_ids = cleaned.get("split_ids", [])
+        cleaned["selected_splits"] = selected_ids
+        cleaned["amount"] = sum(
+            (self.split_amounts[split_id] for split_id in selected_ids),
+            Decimal("0.00"),
+        )
         return cleaned
-        
+
+
+class SettlementReceiptForm(forms.Form):
+    account = SettlementAccountChoiceField(
+        queryset=Account.objects.none(),
+        widget=forms.Select(attrs={"class": "form-select settlement-account-select"}),
+        label="Deposit into",
+    )
+
+    def __init__(self, *args, user=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        if user:
+            self.fields["account"].queryset = Account.objects.filter(
+                user=user,
+                is_active=True,
+            ).order_by("name")
+            self.fields["account"].empty_label = "Choose an account"
+
+
 class ReceiptUploadForm(forms.Form):
     receipt = forms.FileField(
         widget=forms.FileInput(

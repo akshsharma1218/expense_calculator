@@ -7,6 +7,14 @@
 <a href="{% url 'group-settlement' group.id %}" class="btn-glow">
     <i class="bi bi-cash-coin"></i> Settle Up
 </a>
+{% if request.user.id == group.created_by_id %}
+<form method="post" action="{% url 'group-delete' group.id %}" onsubmit="return confirm('Delete this group and all group-only data? Linked personal transactions and account balances will be preserved. This cannot be undone.');">
+    {% csrf_token %}
+    <button type="submit" class="btn btn-outline-danger">
+        <i class="bi bi-trash3" aria-hidden="true"></i> Delete Group
+    </button>
+</form>
+{% endif %}
 {% endblock %}
 
 {% block content %}
@@ -33,7 +41,17 @@
                 <h5 class="mb-3" style="font-weight:700">Members</h5>
                 <div class="d-flex flex-wrap gap-2">
                     {% for member in members %}
-                    <span class="action-chip"><i class="bi bi-person"></i> {{ member.user.username }}</span>
+                    <div class="action-chip d-inline-flex align-items-center">
+                        <i class="bi bi-person"></i> {{ member.user.username }}
+                        {% if request.user.id == group.created_by_id and member.user_id != group.created_by_id %}
+                        <form method="post" action="{% url 'group-member-remove' group.id member.user_id %}" class="d-inline ms-1">
+                            {% csrf_token %}
+                            <button type="submit" class="btn btn-sm btn-link text-danger p-0" aria-label="Remove {{ member.user.username }}" title="Remove member">
+                                <i class="bi bi-x-circle"></i>
+                            </button>
+                        </form>
+                        {% endif %}
+                    </div>
                     {% empty %}
                     <p class="text-muted">No members added yet.</p>
                     {% endfor %}

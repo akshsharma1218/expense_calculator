@@ -1,6 +1,6 @@
 import csv
 import json
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from io import BytesIO
 from unittest.mock import patch
@@ -12,8 +12,8 @@ from django.urls import reverse
 from django.utils import timezone
 
 from .forms import FavoriteDescriptionForm, QuickTransactionForm, TransactionForm
-from .models import Account, Budget, Category, EntryType, ExpenseGroup, FavoriteDescription, GroupBalance, GroupExpenseSplit, GroupInvitation, GroupMember, Merchant, Transaction, Transfer
-from .services import BudgetService, DashboardService, GroupService, ServiceError, SettlementService, TransactionService, TransferService, BulkTransactionUploadService
+from .models import Account, Budget, Category, EntryType, ExpenseGroup, FavoriteDescription, GroupBalance, GroupExpense, GroupExpenseSplit, GroupInvitation, GroupMember, Merchant, Settlement, SettlementAllocation, Transaction, Transfer, UserNotification
+from .services import BudgetService, DashboardService, GroupInvitationService, GroupService, ServiceError, SettlementService, TransactionService, TransferService, BulkTransactionUploadService
 
 
 User = get_user_model()
@@ -644,41 +644,223 @@ class GroupSplitSettlementTests(TestCase):
         self.group = GroupService.create_group(name="Trip", created_by=self.user)
         GroupMember.objects.create(group=self.group, user=self.debtor)
 
-    def test_settlement_rejects_amount_above_outstanding_balance(self):
-        GroupBalance.objects.create(
+    def create_due_split(self):
+        account = Account.objects.create(
+            user=self.user,
+            name="Shared expenses",
+            account_type=Account.AccountType.CASH,
+            opening_balance=Decimal("120.00"),
+            current_balance=Decimal("120.00"),
+        )
+        category = Category.objects.create(
+            name="Shared trip",
+            category_type=Category.CategoryType.EXPENSE,
+            normal_side=EntryType.DEBIT,
+            created_by=self.user,
+        )
+        transaction = Transaction.objects.create(
+            user=self.user,
+            account=account,
+            category=category,
+            amount=Decimal("120.00"),
+            entry_type=EntryType.DEBIT,
+            transaction_date="2026-06-15",
+            description="Shared lunch",
+        )
+        GroupService.create_equal_split_expense(
             group=self.group,
-            from_user=self.debtor,
-            to_user=self.user,
-            balance_amount=Decimal("50.00"),
+            paid_by=self.user,
+            transaction_obj=transaction,
+            members=[self.user, self.debtor],
+        )
+        return GroupExpenseSplit.objects.get(
+            expense__transaction=transaction,
+            user=self.debtor,
         )
 
-        with self.assertRaisesMessage(ServiceError, "Settlement amount exceeds the outstanding balance."):
-            SettlementService.settle(
-                group=self.group,
-                payer=self.debtor,
-                receiver=self.user,
-                amount=Decimal("75.00"),
-                notes="too much",
-            )
-
-    def test_settlement_exact_amount_clears_balance(self):
-        GroupBalance.objects.create(
-            group=self.group,
-            from_user=self.debtor,
-            to_user=self.user,
-            balance_amount=Decimal("60.00"),
+    def test_payer_settles_full_share_and_receiver_records_credit_later(self):
+        split = self.create_due_split()
+        self.assertTrue(
+            UserNotification.objects.filter(
+                user=self.debtor,
+                event="group_expense.split",
+            ).exists()
         )
-
+        payer_account = Account.objects.create(
+            user=self.debtor,
+            name="Payer cash",
+            account_type=Account.AccountType.CASH,
+            opening_balance=Decimal("100.00"),
+            current_balance=Decimal("100.00"),
+        )
+        receiver_account = Account.objects.create(
+            user=self.user,
+            name="Receiver bank",
+            account_type=Account.AccountType.BANK,
+            opening_balance=Decimal("10.00"),
+            current_balance=Decimal("10.00"),
+        )
         settlement = SettlementService.settle(
             group=self.group,
             payer=self.debtor,
             receiver=self.user,
-            amount=Decimal("60.00"),
+            account=payer_account,
+            split_ids=[split.pk],
             notes="settled",
         )
 
-        self.assertEqual(settlement.amount, Decimal("60.00"))
+        self.assertEqual(settlement.amount, Decimal("100.00"))
+        self.assertTrue(settlement.is_completed)
+        self.assertEqual(settlement.payer_transaction.entry_type, EntryType.DEBIT)
+        self.assertTrue(
+            UserNotification.objects.filter(
+                user=self.user,
+                event="group_settlement.paid",
+                data__settlement_id=str(settlement.pk),
+            ).exists()
+        )
+        payer_account.refresh_from_db()
+        self.assertEqual(payer_account.current_balance, Decimal("40.00"))
+        split.refresh_from_db()
+        self.assertEqual(split.status, GroupExpenseSplit.Status.SETTLED)
+        self.assertEqual(
+            SettlementAllocation.objects.get(settlement=settlement, split=split).amount,
+            split.share_amount,
+        )
         self.assertFalse(GroupBalance.objects.filter(group=self.group, from_user=self.debtor, to_user=self.user).exists())
+        self.assertFalse(GroupBalance.objects.filter(group=self.group).exists())
+
+        with self.assertRaisesMessage(ServiceError, "Choose one of your own accounts"):
+            SettlementService.record_received(
+                settlement=settlement,
+                receiver=self.user,
+                account=payer_account,
+            )
+
+        receiver_transaction = SettlementService.record_received(
+            settlement=settlement,
+            receiver=self.user,
+            account=receiver_account,
+        )
+        receiver_account.refresh_from_db()
+        settlement.refresh_from_db()
+        self.assertEqual(receiver_transaction.entry_type, EntryType.CREDIT)
+        self.assertEqual(receiver_account.current_balance, Decimal("70.00"))
+        self.assertEqual(settlement.receiver_transaction, receiver_transaction)
+        self.assertTrue(
+            UserNotification.objects.filter(
+                user=self.debtor,
+                event="group_settlement.received",
+                data__settlement_id=str(settlement.pk),
+            ).exists()
+        )
+        with self.assertRaisesMessage(ServiceError, "already been recorded"):
+            SettlementService.record_received(
+                settlement=settlement,
+                receiver=self.user,
+                account=receiver_account,
+            )
+
+    def test_cannot_settle_a_split_that_belongs_to_another_payer(self):
+        split = self.create_due_split()
+        payer_account = Account.objects.create(
+            user=self.user,
+            name="Payer cash",
+            account_type=Account.AccountType.CASH,
+        )
+
+        with self.assertRaisesMessage(ServiceError, "no longer payable"):
+            SettlementService.settle(
+                group=self.group,
+                payer=self.user,
+                receiver=self.debtor,
+                account=payer_account,
+                split_ids=[split.pk],
+            )
+
+    def test_settlement_page_supports_payer_and_receiver_confirmation(self):
+        split = self.create_due_split()
+        second_transaction = Transaction.objects.create(
+            user=self.user,
+            account=split.expense.transaction.account,
+            category=split.expense.transaction.category,
+            amount=Decimal("80.00"),
+            entry_type=EntryType.DEBIT,
+            transaction_date="2026-06-16",
+            description="Shared dinner",
+        )
+        GroupService.create_equal_split_expense(
+            group=self.group,
+            paid_by=self.user,
+            transaction_obj=second_transaction,
+            members=[self.user, self.debtor],
+        )
+        second_split = GroupExpenseSplit.objects.get(
+            expense__transaction=second_transaction,
+            user=self.debtor,
+        )
+        payer_account = Account.objects.create(
+            user=self.debtor,
+            name="Payer wallet",
+            account_type=Account.AccountType.WALLET,
+            opening_balance=Decimal("100.00"),
+            current_balance=Decimal("100.00"),
+        )
+        receiver_account = Account.objects.create(
+            user=self.user,
+            name="Receiver bank",
+            account_type=Account.AccountType.BANK,
+            opening_balance=Decimal("0.00"),
+            current_balance=Decimal("0.00"),
+        )
+
+        self.client.force_login(self.debtor)
+        page = self.client.get(reverse("group-settlement", kwargs={"pk": self.group.pk}))
+        self.assertEqual(page.status_code, 200)
+        self.assertContains(page, "Expenses to settle")
+        self.assertContains(page, "Paid from")
+        self.assertContains(page, "Payer wallet · Wallet")
+        self.assertContains(page, "data-select-all")
+        self.assertContains(page, "data-select-none")
+        self.assertContains(page, 'name="split_ids"')
+        self.assertContains(page, "Shared dinner")
+        payment_response = self.client.post(
+            reverse(
+                "group-settlement-pay",
+                kwargs={"pk": self.group.pk, "receiver_id": self.user.pk},
+            ),
+            {
+                "account": str(payer_account.pk),
+                "split_ids": [str(split.pk), str(second_split.pk)],
+                "notes": "Cash app",
+            },
+        )
+        self.assertRedirects(
+            payment_response,
+            reverse("group-settlement", kwargs={"pk": self.group.pk}),
+        )
+        settlement = Settlement.objects.get(group=self.group, payer=self.debtor)
+        self.assertIsNotNone(settlement.payer_transaction_id)
+        self.assertIsNone(settlement.receiver_transaction_id)
+
+        self.client.force_login(self.user)
+        receiver_page = self.client.get(
+            reverse("group-settlement", kwargs={"pk": self.group.pk})
+        )
+        self.assertContains(receiver_page, "Record received payment")
+        receive_response = self.client.post(
+            reverse(
+                "group-settlement-record-received",
+                kwargs={"pk": self.group.pk, "settlement_id": settlement.pk},
+            ),
+            {"account": str(receiver_account.pk)},
+        )
+        self.assertRedirects(
+            receive_response,
+            reverse("group-settlement", kwargs={"pk": self.group.pk}),
+        )
+        settlement.refresh_from_db()
+        self.assertIsNotNone(settlement.receiver_transaction_id)
 
     def test_equal_group_split_updates_balances(self):
         other_user = User.objects.create_user(username="friend", password="strong-pass")
@@ -775,6 +957,27 @@ class TransactionSplitFlowTests(TestCase):
             Decimal("40.00"),
         )
 
+    def test_stale_group_expense_flag_does_not_block_splitting(self):
+        transaction = TransactionService.create_transaction(
+            user=self.user,
+            account=self.account,
+            category=self.category,
+            amount=Decimal("80.00"),
+            transaction_date="2026-09-30",
+            description="Lunch after group deletion",
+        )
+        transaction.is_group_expense = True
+        transaction.save(update_fields=["is_group_expense"])
+
+        expense = GroupService.split_existing_transaction(
+            transaction_obj=transaction,
+            group=self.group,
+            split_mode="equal",
+            paid_by=self.user,
+        )
+
+        self.assertTrue(GroupExpense.objects.filter(pk=expense.pk).exists())
+
     def test_transaction_service_creates_custom_split_from_member_ids(self):
         transaction = TransactionService.create_transaction(
             user=self.user,
@@ -790,7 +993,6 @@ class TransactionSplitFlowTests(TestCase):
             split_mode="custom",
             paid_by=self.user,
             splits=[
-                {"user": self.user, "amount": "30.00"},
                 {"user": self.friend, "amount": "50.00"},
             ],
         )
@@ -808,6 +1010,185 @@ class TransactionSplitFlowTests(TestCase):
             Decimal("50.00"),
         )
 
+    def test_custom_split_page_assigns_remaining_share_to_current_user(self):
+        transaction = TransactionService.create_transaction(
+            user=self.user,
+            account=self.account,
+            category=self.category,
+            amount=Decimal("80.00"),
+            transaction_date="2026-09-30",
+            description="Dinner",
+        )
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            reverse("transaction-split", args=[transaction.pk]),
+            {
+                "group": str(self.group.pk),
+                "split_mode": "custom",
+                "selected_members": [str(self.friend.pk)],
+                f"share_{self.friend.pk}": "50.00",
+            },
+        )
+
+        self.assertRedirects(response, reverse("transaction-list"))
+        shares = {
+            share.user_id: share.share_amount
+            for share in GroupExpenseSplit.objects.filter(expense__transaction=transaction)
+        }
+        self.assertEqual(shares[self.user.pk], Decimal("30.00"))
+        self.assertEqual(shares[self.friend.pk], Decimal("50.00"))
+
+    def test_existing_split_can_be_updated_and_rebalances_outstanding_debt(self):
+        transaction = TransactionService.create_transaction(
+            user=self.user,
+            account=self.account,
+            category=self.category,
+            amount=Decimal("80.00"),
+            transaction_date="2026-09-30",
+            description="Dinner",
+        )
+        GroupService.split_existing_transaction(
+            transaction_obj=transaction,
+            group=self.group,
+            split_mode="custom",
+            paid_by=self.user,
+            splits=[{"user": self.friend, "amount": "50.00"}],
+        )
+        self.client.force_login(self.user)
+
+        page = self.client.get(reverse("transaction-split", args=[transaction.pk]))
+        self.assertEqual(page.status_code, 200)
+        self.assertContains(page, "Update split")
+        self.assertContains(page, 'value="50.00"')
+
+        response = self.client.post(
+            reverse("transaction-split", args=[transaction.pk]),
+            {
+                "group": str(self.group.pk),
+                "split_mode": "custom",
+                "selected_members": [str(self.friend.pk)],
+                f"share_{self.friend.pk}": "30.00",
+            },
+        )
+
+        self.assertRedirects(response, reverse("transaction-list"))
+        shares = {
+            share.user_id: share.share_amount
+            for share in GroupExpenseSplit.objects.filter(expense__transaction=transaction)
+        }
+        self.assertEqual(shares, {
+            self.user.pk: Decimal("50.00"),
+            self.friend.pk: Decimal("30.00"),
+        })
+        self.assertEqual(
+            GroupBalance.objects.get(
+                group=self.group,
+                from_user=self.friend,
+                to_user=self.user,
+            ).balance_amount,
+            Decimal("30.00"),
+        )
+
+    def test_split_categories_are_hidden_from_transaction_form(self):
+        paid_category = Category.objects.create(
+            name="Group Settlement Paid",
+            category_type=Category.CategoryType.EXPENSE,
+            normal_side=EntryType.DEBIT,
+            is_system=True,
+        )
+        received_category = Category.objects.create(
+            name="Group Settlement Received",
+            category_type=Category.CategoryType.INCOME,
+            normal_side=EntryType.CREDIT,
+            is_system=True,
+        )
+
+        form = TransactionForm(user=self.user)
+
+        self.assertNotIn(paid_category, form.fields["category"].queryset)
+        self.assertNotIn(received_category, form.fields["category"].queryset)
+
+    def test_deleting_unsettled_split_removes_shares_and_reverses_group_balance(self):
+        transaction = TransactionService.create_transaction(
+            user=self.user,
+            account=self.account,
+            category=self.category,
+            amount=Decimal("80.00"),
+            transaction_date="2026-09-30",
+            description="Dinner",
+        )
+        expense = GroupService.split_existing_transaction(
+            transaction_obj=transaction,
+            group=self.group,
+            split_mode="custom",
+            paid_by=self.user,
+            splits=[{"user": self.friend, "amount": "50.00"}],
+        )
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            reverse("transaction-delete", args=[transaction.pk])
+        )
+
+        self.assertRedirects(response, reverse("transaction-list"))
+        transaction.refresh_from_db()
+        self.assertTrue(transaction.is_deleted)
+        self.assertFalse(GroupExpenseSplit.objects.filter(expense=expense).exists())
+        self.assertFalse(GroupExpense.objects.filter(pk=expense.pk).exists())
+        self.assertFalse(GroupBalance.objects.filter(group=self.group).exists())
+
+    def test_deleting_transaction_with_settled_share_is_blocked(self):
+        split = self.create_existing_split_for_deletion()
+        payer_account = Account.objects.create(
+            user=self.friend,
+            name="Settlement wallet",
+            account_type=Account.AccountType.WALLET,
+            opening_balance=Decimal("100.00"),
+            current_balance=Decimal("100.00"),
+        )
+        SettlementService.settle(
+            group=self.group,
+            payer=self.friend,
+            receiver=self.user,
+            account=payer_account,
+            split_ids=[split.pk],
+        )
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            reverse("transaction-delete", args=[split.expense.transaction_id])
+        )
+
+        self.assertRedirects(response, reverse("transaction-list"))
+        split.expense.transaction.refresh_from_db()
+        self.assertFalse(split.expense.transaction.is_deleted)
+        self.assertContains(
+            self.client.get(reverse("transaction-list")),
+            "settled shares and cannot be deleted",
+        )
+
+    def create_existing_split_for_deletion(self):
+        transaction = TransactionService.create_transaction(
+            user=self.user,
+            account=self.account,
+            category=self.category,
+            amount=Decimal("80.00"),
+            transaction_date="2026-09-30",
+            description="Dinner",
+        )
+        GroupService.split_existing_transaction(
+            transaction_obj=transaction,
+            group=self.group,
+            split_mode="custom",
+            paid_by=self.user,
+            splits=[{"user": self.friend, "amount": "50.00"}],
+        )
+        return GroupExpenseSplit.objects.get(
+            expense__transaction=transaction,
+            user=self.friend,
+        )
+
     def test_custom_split_api_creates_shares_after_transaction_exists(self):
         transaction = TransactionService.create_transaction(
             user=self.user,
@@ -822,10 +1203,8 @@ class TransactionSplitFlowTests(TestCase):
             reverse("transaction-split-api", args=[transaction.pk]),
             data=json.dumps({
                 "group_id": str(self.group.pk),
-                "paid_by_id": self.user.pk,
                 "split_mode": "custom",
                 "splits": [
-                    {"user_id": self.user.pk, "amount": "30.00"},
                     {"user_id": self.friend.pk, "amount": "50.00"},
                 ],
             }),
@@ -834,6 +1213,12 @@ class TransactionSplitFlowTests(TestCase):
 
         self.assertEqual(response.status_code, 201, response.content)
         self.assertEqual(GroupExpenseSplit.objects.filter(expense__transaction=transaction).count(), 2)
+        shares = {
+            share.user_id: share.share_amount
+            for share in GroupExpenseSplit.objects.filter(expense__transaction=transaction)
+        }
+        self.assertEqual(shares[self.user.pk], Decimal("30.00"))
+        self.assertEqual(shares[self.friend.pk], Decimal("50.00"))
         transaction.refresh_from_db()
         self.assertTrue(transaction.is_group_expense)
 
@@ -854,8 +1239,7 @@ class TransactionSplitFlowTests(TestCase):
                 "paid_by_id": self.user.pk,
                 "split_mode": "custom",
                 "splits": [
-                    {"user_id": self.user.pk, "amount": "30.00"},
-                    {"user_id": self.friend.pk, "amount": "40.00"},
+                    {"user_id": self.friend.pk, "amount": "100.00"},
                 ],
             }),
             content_type="application/json",
@@ -976,6 +1360,59 @@ class BulkTransactionUploadTests(TestCase):
         )
 
 
+class ReportPageTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            email="report-user@example.com",
+            username="report-user",
+            password="report-test-password",
+        )
+        self.client.force_login(self.user)
+
+    def test_monthly_and_category_reports_render_without_transactions(self):
+        monthly = self.client.get(reverse("monthly-report"))
+        category = self.client.get(reverse("category-report"))
+
+        self.assertEqual(monthly.status_code, 200)
+        self.assertContains(monthly, "Monthly Report")
+        self.assertEqual(category.status_code, 200)
+        self.assertContains(category, "Category Report")
+
+    def test_reports_render_investment_only_transactions(self):
+        account = Account.objects.create(
+            user=self.user,
+            name="Investment account",
+            account_type=Account.AccountType.INVESTMENT,
+        )
+        transfer_category = Category.objects.create(
+            name="Investment transfer",
+            category_type=Category.CategoryType.TRANSFER,
+            normal_side=EntryType.DEBIT,
+            created_by=self.user,
+        )
+        transaction_date = timezone.localdate()
+        Transaction.objects.create(
+            user=self.user,
+            account=account,
+            category=transfer_category,
+            amount=Decimal("25.00"),
+            entry_type=EntryType.CREDIT,
+            transaction_date=transaction_date,
+            description="Investment contribution",
+        )
+
+        monthly = self.client.get(
+            reverse("monthly-report"),
+            {"month": transaction_date.strftime("%Y-%m")},
+        )
+        category = self.client.get(reverse("category-report"))
+
+        self.assertEqual(monthly.status_code, 200)
+        self.assertTrue(monthly.context["has_report_data"])
+        self.assertEqual(category.status_code, 200)
+        self.assertTrue(category.context["has_report_data"])
+
+
 class GroupPageTests(TestCase):
     def setUp(self):
         self.user = User.objects.create_user(username="group-user", password="strong-pass")
@@ -987,6 +1424,125 @@ class GroupPageTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Groups")
+
+    def test_group_creator_can_delete_group_data_without_deleting_personal_transaction(self):
+        self.client.force_login(self.user)
+        group = GroupService.create_group(name="Delete this trip", created_by=self.user)
+        member = User.objects.create_user(
+            email="group-delete-member@example.com",
+            username="group-delete-member",
+            password="group-delete-password",
+        )
+        GroupMember.objects.create(group=group, user=member)
+        invitee = User.objects.create_user(
+            email="group-delete-invitee@example.com",
+            username="group-delete-invitee",
+            password="group-delete-password",
+        )
+        GroupInvitationService.invite_member(
+            group=group,
+            invited_user=invitee,
+            invited_by=self.user,
+        )
+        account = Account.objects.create(
+            user=self.user,
+            name="Personal wallet",
+            account_type=Account.AccountType.WALLET,
+            opening_balance=Decimal("100.00"),
+            current_balance=Decimal("100.00"),
+        )
+        transaction = TransactionService.create_transaction(
+            user=self.user,
+            account=account,
+            category=Category.objects.create(
+                name="Group deletion expense",
+                category_type=Category.CategoryType.EXPENSE,
+                normal_side=EntryType.DEBIT,
+                created_by=self.user,
+            ),
+            amount=Decimal("20.00"),
+            transaction_date=timezone.localdate(),
+            description="Lunch",
+        )
+        expense = GroupService.create_equal_split_expense(
+            group=group,
+            paid_by=self.user,
+            transaction_obj=transaction,
+            members=[self.user, member],
+        )
+        member_account = Account.objects.create(
+            user=member,
+            name="Member wallet",
+            account_type=Account.AccountType.WALLET,
+            opening_balance=Decimal("100.00"),
+            current_balance=Decimal("100.00"),
+        )
+        member_split = GroupExpenseSplit.objects.get(
+            expense=expense,
+            user=member,
+        )
+        settlement = SettlementService.settle(
+            group=group,
+            payer=member,
+            receiver=self.user,
+            account=member_account,
+            split_ids=[member_split.pk],
+        )
+        receiver_transaction = SettlementService.record_received(
+            settlement=settlement,
+            receiver=self.user,
+            account=account,
+        )
+        payer_transaction_id = settlement.payer_transaction_id
+        receiver_transaction_id = receiver_transaction.pk
+        settled_account_balances = {
+            account.pk: Account.objects.get(pk=account.pk).current_balance,
+            member_account.pk: Account.objects.get(pk=member_account.pk).current_balance,
+        }
+        response = self.client.post(
+            reverse("group-delete", kwargs={"pk": group.pk})
+        )
+
+        self.assertRedirects(response, reverse("group-list"))
+        self.assertFalse(ExpenseGroup.objects.filter(pk=group.pk).exists())
+        self.assertFalse(GroupExpense.objects.filter(pk=expense.pk).exists())
+        self.assertFalse(GroupInvitation.objects.filter(group_id=group.pk).exists())
+        self.assertFalse(GroupBalance.objects.filter(group_id=group.pk).exists())
+        self.assertFalse(Settlement.objects.filter(pk=settlement.pk).exists())
+        self.assertFalse(UserNotification.objects.filter(data__group_id=str(group.pk)).exists())
+        transaction.refresh_from_db()
+        account.refresh_from_db()
+        member_account.refresh_from_db()
+        self.assertFalse(transaction.is_deleted)
+        self.assertFalse(transaction.is_group_expense)
+        self.assertEqual(account.current_balance, settled_account_balances[account.pk])
+        self.assertEqual(member_account.current_balance, settled_account_balances[member_account.pk])
+        self.assertTrue(Transaction.objects.filter(pk=transaction.pk).exists())
+        self.assertTrue(Transaction.objects.filter(pk=payer_transaction_id).exists())
+        self.assertTrue(Transaction.objects.filter(pk=receiver_transaction_id).exists())
+        self.assertFalse(
+            Settlement.objects.filter(payer_transaction_id=payer_transaction_id).exists()
+        )
+        self.assertFalse(
+            Settlement.objects.filter(receiver_transaction_id=receiver_transaction_id).exists()
+        )
+
+    def test_non_creator_cannot_delete_group(self):
+        group = GroupService.create_group(name="Creator-owned group", created_by=self.user)
+        member = User.objects.create_user(
+            email="group-delete-noncreator@example.com",
+            username="group-delete-noncreator",
+            password="group-delete-password",
+        )
+        GroupMember.objects.create(group=group, user=member)
+        self.client.force_login(member)
+
+        response = self.client.post(
+            reverse("group-delete", kwargs={"pk": group.pk})
+        )
+
+        self.assertEqual(response.status_code, 404)
+        self.assertTrue(ExpenseGroup.objects.filter(pk=group.pk).exists())
 
     def test_group_member_can_invite_user_from_group_detail(self):
         self.client.force_login(self.user)
@@ -1006,6 +1562,222 @@ class GroupPageTests(TestCase):
         invitation = GroupInvitation.objects.get(group=group, invited_user=invitee)
         self.assertEqual(invitation.status, GroupInvitation.Status.PENDING)
         self.assertContains(self.client.get(reverse("group-detail", kwargs={"pk": group.pk})), "Invite a member")
+
+    def test_group_creator_can_remove_member_without_outstanding_balance(self):
+        self.client.force_login(self.user)
+        group = GroupService.create_group(name="Weekend trip", created_by=self.user)
+        member = User.objects.create_user(
+            email="removable-member@example.com",
+            username="removable-member",
+            password="test-password",
+        )
+        GroupMember.objects.create(group=group, user=member)
+
+        response = self.client.post(
+            reverse("group-member-remove", kwargs={"pk": group.pk, "user_id": member.pk})
+        )
+
+        self.assertRedirects(response, reverse("group-detail", kwargs={"pk": group.pk}))
+        self.assertFalse(GroupMember.objects.filter(group=group, user=member).exists())
+        self.assertTrue(
+            UserNotification.objects.filter(
+                user=member,
+                event="group_member.removed",
+                data__group_id=str(group.pk),
+            ).exists()
+        )
+
+    def test_notification_inbox_excludes_and_deletes_expired_notifications(self):
+        expired = UserNotification.objects.create(
+            user=self.user,
+            event="group.test",
+            message="Expired",
+            expires_at=timezone.now() - timedelta(seconds=1),
+        )
+        other_user = User.objects.create_user(
+            email="notification-owner@example.com",
+            username="notification-owner",
+            password="notification-test-password",
+        )
+        other_notification = UserNotification.objects.create(
+            user=other_user,
+            event="group.test",
+            message="Private",
+        )
+        unread_notification = UserNotification.objects.create(
+            user=self.user,
+            event="group.test",
+            message="Unread",
+        )
+        self.client.force_login(self.user)
+
+        response = self.client.get(reverse("notification-list"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["unread_count"], 1)
+        self.assertEqual(
+            [item["id"] for item in response.json()["notifications"]],
+            [str(unread_notification.pk)],
+        )
+        self.assertFalse(UserNotification.objects.filter(pk=expired.pk).exists())
+        self.assertTrue(UserNotification.objects.filter(pk=other_notification.pk).exists())
+
+        opened_response = self.client.post(reverse("notification-mark-all-read"))
+
+        self.assertEqual(opened_response.status_code, 200)
+        self.assertEqual(opened_response.json()["unread_count"], 0)
+        unread_notification.refresh_from_db()
+        self.assertTrue(unread_notification.is_read)
+        other_notification.refresh_from_db()
+        self.assertFalse(other_notification.is_read)
+
+    def test_user_cannot_mark_another_users_notification_as_read(self):
+        owner = User.objects.create_user(
+            email="private-notification@example.com",
+            username="private-notification",
+            password="notification-test-password",
+        )
+        notification = UserNotification.objects.create(
+            user=owner,
+            event="group.test",
+            message="Private",
+        )
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            reverse(
+                "notification-mark-read",
+                kwargs={"notification_id": notification.pk},
+            )
+        )
+
+        self.assertEqual(response.status_code, 404)
+        notification.refresh_from_db()
+        self.assertFalse(notification.is_read)
+
+    def test_group_member_with_outstanding_balance_cannot_be_removed(self):
+        self.client.force_login(self.user)
+        group = GroupService.create_group(name="Weekend trip", created_by=self.user)
+        member = User.objects.create_user(
+            email="owing-member@example.com",
+            username="owing-member",
+            password="test-password",
+        )
+        GroupMember.objects.create(group=group, user=member)
+        GroupBalance.objects.create(
+            group=group,
+            from_user=member,
+            to_user=self.user,
+            balance_amount=Decimal("20.00"),
+        )
+
+        response = self.client.post(
+            reverse("group-member-remove", kwargs={"pk": group.pk, "user_id": member.pk})
+        )
+
+        self.assertRedirects(response, reverse("group-detail", kwargs={"pk": group.pk}))
+        self.assertTrue(GroupMember.objects.filter(group=group, user=member).exists())
+        self.assertContains(
+            self.client.get(reverse("group-detail", kwargs={"pk": group.pk})),
+            "Settle all outstanding group balances",
+        )
+
+    def test_invitation_is_visible_to_invitee_and_can_be_accepted(self):
+        invitee = User.objects.create_user(
+            email="group-invitee@example.com",
+            username="group-invitee",
+            password="test-password",
+        )
+        group = GroupService.create_group(name="Shared trip", created_by=self.user)
+        invitation = GroupInvitationService.invite_member(
+            group=group,
+            invited_user=invitee,
+            invited_by=self.user,
+        )
+        saved_notification = UserNotification.objects.get(
+            user=invitee,
+            event="group_invitation.created",
+        )
+        self.assertEqual(saved_notification.data["invitation_id"], str(invitation.pk))
+        self.assertGreater(
+            saved_notification.expires_at,
+            timezone.now() + timedelta(days=6),
+        )
+        self.client.force_login(invitee)
+
+        inbox_response = self.client.get(reverse("group-invitations"))
+        self.assertEqual(inbox_response.status_code, 200)
+        self.assertContains(inbox_response, "Shared trip")
+        self.assertContains(inbox_response, "Invitations")
+        notification_response = self.client.get(
+            reverse("group-invitations"),
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+        self.assertEqual(notification_response.status_code, 200)
+        self.assertEqual(
+            notification_response.json()["invitations"][0]["id"],
+            str(invitation.pk),
+        )
+        saved_response = self.client.get(reverse("notification-list"))
+        self.assertEqual(saved_response.status_code, 200)
+        self.assertEqual(saved_response.json()["unread_count"], 1)
+        self.assertEqual(
+            saved_response.json()["notifications"][0]["id"],
+            str(saved_notification.pk),
+        )
+        mark_read_response = self.client.post(
+            reverse(
+                "notification-mark-read",
+                kwargs={"notification_id": saved_notification.pk},
+            )
+        )
+        self.assertEqual(mark_read_response.status_code, 200)
+        self.assertEqual(mark_read_response.json()["unread_count"], 0)
+        saved_notification.refresh_from_db()
+        self.assertTrue(saved_notification.is_read)
+
+        response = self.client.post(
+            reverse("group-invitation-accept", kwargs={"pk": invitation.pk})
+        )
+
+        self.assertRedirects(response, reverse("group-invitations"))
+        invitation.refresh_from_db()
+        self.assertEqual(invitation.status, GroupInvitation.Status.ACCEPTED)
+        self.assertTrue(GroupMember.objects.filter(group=group, user=invitee).exists())
+        self.assertTrue(
+            UserNotification.objects.filter(
+                user=self.user,
+                event="group_invitation.responded",
+                data__invitation_id=str(invitation.pk),
+            ).exists()
+        )
+        self.assertNotContains(
+            self.client.get(reverse("group-invitations")),
+            "Shared trip",
+        )
+
+    def test_invitation_can_be_declined(self):
+        invitee = User.objects.create_user(
+            email="declining-invitee@example.com",
+            username="declining-invitee",
+            password="test-password",
+        )
+        group = GroupService.create_group(name="Declined trip", created_by=self.user)
+        invitation = GroupInvitationService.invite_member(
+            group=group,
+            invited_user=invitee,
+            invited_by=self.user,
+        )
+        self.client.force_login(invitee)
+
+        response = self.client.post(
+            reverse("group-invitation-decline", kwargs={"pk": invitation.pk})
+        )
+
+        self.assertRedirects(response, reverse("group-invitations"))
+        invitation.refresh_from_db()
+        self.assertEqual(invitation.status, GroupInvitation.Status.DECLINED)
+        self.assertFalse(GroupMember.objects.filter(group=group, user=invitee).exists())
 
     def test_non_member_cannot_access_group_detail(self):
         self.client.force_login(self.user)

@@ -100,7 +100,7 @@ window.FinFlowTables = (function () {
             const row = cell.getData();
             return `
               <div class="d-inline-flex gap-2 align-items-center">
-                ${row.is_expense && !row.is_group_expense ? `<a href="${row.split_url}" class="btn-icon" title="Split transaction" aria-label="Split transaction"><i class="bi bi-people" aria-hidden="true"></i></a>` : ''}
+                ${row.is_expense ? `<a href="${row.split_url}" class="btn-icon" title="${row.is_group_expense ? 'Edit split' : 'Split transaction'}" aria-label="${row.is_group_expense ? 'Edit split' : 'Split transaction'}"><i class="bi ${row.is_group_expense ? 'bi-people-fill' : 'bi-people'}" aria-hidden="true"></i></a>` : ''}
                 <a href="${row.edit_url}" class="btn-icon" title="Edit transaction" aria-label="Edit transaction">
                   <i class="bi bi-pencil-square" aria-hidden="true"></i>
                 </a>

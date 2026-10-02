@@ -283,6 +283,7 @@ class TransactionService(BaseService):
         if transaction_obj.is_deleted:
             raise ServiceError("Transaction already deleted.")
 
+        GroupService.delete_group_expense(transaction_obj=transaction_obj)
         account = TransactionService._lock_account(transaction_obj.account_id)
         BalanceService.reverse(
             account=account,

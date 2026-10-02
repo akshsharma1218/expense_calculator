@@ -1,5 +1,140 @@
-{% extends "expense/components/form_page.html" %}
+{% extends "expense/base.html" %}
 
-{% block title %}
-Settle Group
+{% block title %}Settle Up — {{ group.name }}{% endblock %}
+{% block page_heading %}Settle Up{% endblock %}
+
+{% block content %}
+<div class="settlement-page-header mb-4">
+    <a href="{% url 'group-detail' group.id %}" class="btn btn-sm btn-outline-secondary mb-3">
+        <i class="bi bi-arrow-left" aria-hidden="true"></i> {{ group.name }}
+    </a>
+    <h1 class="page-title">Settle up</h1>
+    <p class="page-subtitle">Choose one or more expense shares, select the account to pay from, and confirm. Recipients can record the credit when they receive it.</p>
+</div>
+
+<section class="mb-5" aria-labelledby="paymentsDueHeading">
+    <h2 id="paymentsDueHeading" class="h4 mb-3">Payments you owe</h2>
+    <div class="row g-4">
+        {% for obligation in obligations %}
+        <div class="col-12">
+            <div class="glass-card settlement-obligation-card">
+                <div class="glass-card-body">
+                    <div class="settlement-obligation-heading">
+                        <div>
+                            <span class="settlement-eyebrow">Payment to</span>
+                            <h3 class="h5 mb-1">{{ obligation.receiver.get_full_name|default:obligation.receiver.email }}</h3>
+                            <p class="text-muted mb-0">Select the complete expenses to include in this payment.</p>
+                        </div>
+                        <div class="settlement-total-chip">
+                            <span>Total due</span>
+                            <strong>₹{{ obligation.total|floatformat:2 }}</strong>
+                        </div>
+                    </div>
+                    <form method="post" action="{% url 'group-settlement-pay' group.id obligation.receiver.id %}">
+                        {% csrf_token %}
+                        {% if obligation.form.non_field_errors %}
+                        <div class="alert alert-danger">{{ obligation.form.non_field_errors }}</div>
+                        {% endif %}
+                        <div class="settlement-account-block mb-4">
+                            <label class="form-label" for="{{ obligation.form.account.id_for_label }}">
+                                <i class="bi bi-wallet2 me-1" aria-hidden="true"></i>Paid from
+                            </label>
+                            {{ obligation.form.account }}
+                            <div class="form-text">The selected account will be debited for the checked expenses.</div>
+                            {% if obligation.form.account.errors %}<div class="text-danger small">{{ obligation.form.account.errors|striptags }}</div>{% endif %}
+                        </div>
+                        <fieldset class="settlement-expenses mb-4" data-settlement-expenses>
+                            <legend class="settlement-expenses-heading">
+                                <span class="form-label mb-0">Expenses to settle</span>
+                                <div class="settlement-selection-actions">
+                                    <button type="button" class="btn btn-sm btn-outline-secondary" data-select-all>All</button>
+                                    <button type="button" class="btn btn-sm btn-outline-secondary" data-select-none>Clear</button>
+                                </div>
+                            </legend>
+                            <div class="settlement-expense-list">
+                                {% for option in obligation.form.split_options %}
+                                <label class="settlement-expense-option{% if option.selected %} selected{% endif %}">
+                                    <input
+                                        class="settlement-expense-checkbox"
+                                        type="checkbox"
+                                        name="split_ids"
+                                        value="{{ option.id }}"
+                                        data-amount="{{ option.amount }}"
+                                        {% if option.selected %}checked{% endif %}
+                                    >
+                                    <span class="settlement-expense-check" aria-hidden="true">
+                                        <i class="bi bi-check2"></i>
+                                    </span>
+                                    <span class="settlement-expense-description">{{ option.description }}</span>
+                                    <strong class="settlement-expense-amount">₹{{ option.amount|floatformat:2 }}</strong>
+                                </label>
+                                {% empty %}
+                                <p class="text-muted mb-0">There are no outstanding expenses to settle.</p>
+                                {% endfor %}
+                            </div>
+                            <div class="settlement-selection-summary">
+                                <span><strong data-selected-count>0</strong> expenses selected</span>
+                                <strong>Selected total: <span data-selected-total>₹0.00</span></strong>
+                            </div>
+                            {% if obligation.form.split_ids.errors %}<div class="text-danger small">{{ obligation.form.split_ids.errors|striptags }}</div>{% endif %}
+                        </fieldset>
+                        <div class="mb-3">
+                            <label class="form-label" for="{{ obligation.form.notes.id_for_label }}">Note (optional)</label>
+                            {{ obligation.form.notes }}
+                        </div>
+                        {% if obligation.form.account.field.queryset and obligation.form.split_options %}
+                        <button type="submit" class="btn btn-primary settlement-submit">
+                            <i class="bi bi-send-check me-1" aria-hidden="true"></i>Confirm payment
+                        </button>
+                        {% else %}
+                        <p class="text-warning mb-0">Add an active account before confirming a payment.</p>
+                        {% endif %}
+                    </form>
+                </div>
+            </div>
+        </div>
+        {% empty %}
+        <div class="col-12">
+            <div class="glass-card"><div class="glass-card-body text-muted">You have no outstanding expense shares to pay.</div></div>
+        </div>
+        {% endfor %}
+    </div>
+</section>
+
+<section aria-labelledby="receivedPaymentsHeading">
+    <h2 id="receivedPaymentsHeading" class="h4 mb-3">Payments to record</h2>
+    <div class="row g-4">
+        {% for payment in incoming_payments %}
+        {% with settlement=payment.settlement form=payment.form %}
+        <div class="col-12 col-lg-6">
+            <div class="glass-card h-100 settlement-incoming-card">
+                <div class="glass-card-body">
+                    <h3 class="h5">Payment from {{ settlement.payer.get_full_name|default:settlement.payer.email }}</h3>
+                    <p class="text-muted mb-1">{{ group.name }} · {{ settlement.settlement_date|date:"M j, Y" }}</p>
+                    <p class="h5">₹{{ settlement.amount|floatformat:2 }}</p>
+                    {% if settlement.notes %}<p>{{ settlement.notes }}</p>{% endif %}
+                    <form method="post" action="{% url 'group-settlement-record-received' group.id settlement.id %}">
+                        {% csrf_token %}
+                        <label class="form-label" for="{{ form.account.id_for_label }}">
+                            <i class="bi bi-wallet2 me-1" aria-hidden="true"></i>Deposit into
+                        </label>
+                        {{ form.account }}
+                        {% if form.account.errors %}<div class="text-danger small">{{ form.account.errors|striptags }}</div>{% endif %}
+                        {% if form.account.field.queryset %}
+                        <button type="submit" class="btn btn-primary mt-3">Record received payment</button>
+                        {% else %}
+                        <p class="text-warning mt-2 mb-0">Add an active account before recording this payment.</p>
+                        {% endif %}
+                    </form>
+                </div>
+            </div>
+        </div>
+        {% endwith %}
+        {% empty %}
+        <div class="col-12">
+            <div class="glass-card"><div class="glass-card-body text-muted">No incoming payments need to be recorded.</div></div>
+        </div>
+        {% endfor %}
+    </div>
+</section>
 {% endblock %}

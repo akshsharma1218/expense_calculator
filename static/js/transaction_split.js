@@ -1,46 +1,66 @@
 document.addEventListener("DOMContentLoaded", () => {
     const form = document.querySelector(".split-form");
     const groupSelect = document.getElementById("id_group");
-    const payerSelect = document.getElementById("id_paid_by");
     const modeSelect = document.getElementById("id_split_mode");
     const memberList = document.getElementById("splitMembers");
     const summary = document.getElementById("splitSummary");
     const memberData = JSON.parse(document.getElementById("split-group-members-data")?.textContent || "[]");
+    const existingSplitData = JSON.parse(document.getElementById("existing-split-data")?.textContent || "[]");
     const groups = new Map(memberData.map((group) => [group.id, group.members]));
-    if (!form || !groupSelect || !payerSelect || !modeSelect || !memberList || !summary) return;
+    if (!form || !groupSelect || !modeSelect || !memberList || !summary) return;
 
     const totalCents = Math.round(Number(form.dataset.transactionAmount) * 100);
+    const currentUser = document.querySelector(".split-page")?.dataset.currentUser;
+    const page = document.querySelector(".split-page");
+    const editingSplit = page?.dataset.editingSplit === "true";
+    const originalGroup = page?.dataset.originalGroup;
+    const existingShares = new Map(
+        existingSplitData.map((share) => [share.user_id, String(share.amount)])
+    );
     const money = (cents) => `₹${(cents / 100).toLocaleString("en-IN", { minimumFractionDigits: 2 })}`;
 
     function renderMembers() {
-        const members = groups.get(groupSelect.value) || [];
+        const groupMembers = groups.get(groupSelect.value) || [];
+        const custom = modeSelect.value === "custom";
+        const members = custom
+            ? groupMembers.filter((member) => member.id !== currentUser)
+            : groupMembers;
         memberList.replaceChildren();
-        payerSelect.replaceChildren(new Option("Choose a payer", ""));
-        members.forEach((member) => payerSelect.add(new Option(member.name, member.id)));
-        const currentUser = document.querySelector(".split-page")?.dataset.currentUser;
-        if (members.some((member) => member.id === currentUser)) payerSelect.value = currentUser;
-        if (!members.length) {
+        if (!groupMembers.length) {
             summary.textContent = "Choose a group to see its members.";
             return;
         }
+        if (custom && !members.length) {
+            summary.textContent = "There are no other group members to owe a share.";
+            summary.classList.add("is-invalid");
+            return;
+        }
 
-        const base = Math.floor(totalCents / members.length);
-        const remainder = totalCents % members.length;
-        members.forEach((member, memberIndex) => {
+        const base = Math.floor(totalCents / groupMembers.length);
+        let remainder = totalCents % groupMembers.length;
+        groupMembers.forEach((member) => {
+            const shareCents = base + (remainder > 0 ? 1 : 0);
+            if (remainder > 0) remainder -= 1;
+            if (custom && member.id === currentUser) return;
+
             const row = document.createElement("div");
             row.className = "split-allocation-row";
             const identity = document.createElement("div");
             identity.className = "split-allocation-person";
             const name = document.createElement("strong");
-            name.textContent = member.name;
-            const shareCents = base + (memberIndex < remainder ? 1 : 0);
+            name.textContent = member.id === currentUser
+                ? `${member.name} (you paid)`
+                : member.name;
 
-            if (modeSelect.value === "custom") {
+            if (custom) {
                 const selected = document.createElement("input");
                 selected.type = "checkbox";
                 selected.name = "selected_members";
                 selected.value = member.id;
-                selected.checked = true;
+                const hasExistingShares = editingSplit && groupSelect.value === originalGroup;
+                selected.checked = hasExistingShares
+                    ? existingShares.has(member.id)
+                    : true;
                 selected.className = "form-check-input";
                 selected.setAttribute("aria-label", `Include ${member.name} in the split`);
                 identity.append(selected);
@@ -49,10 +69,12 @@ document.addEventListener("DOMContentLoaded", () => {
             row.append(identity);
             const amount = document.createElement("span");
             amount.className = "split-equal-amount";
-            amount.textContent = money(shareCents);
+            amount.textContent = member.id === currentUser
+                ? `Your share: ${money(shareCents)}`
+                : `Owes ${money(shareCents)}`;
             row.append(amount);
 
-            if (modeSelect.value === "custom") {
+            if (custom) {
                 const customAmount = document.createElement("input");
                 customAmount.type = "number";
                 customAmount.min = "0.01";
@@ -60,9 +82,13 @@ document.addEventListener("DOMContentLoaded", () => {
                 customAmount.inputMode = "decimal";
                 customAmount.className = "form-control split-custom-amount";
                 customAmount.name = `share_${member.id}`;
-                customAmount.value = (shareCents / 100).toFixed(2);
+                customAmount.value = editingSplit
+                    && groupSelect.value === originalGroup
+                    && existingShares.has(member.id)
+                    ? existingShares.get(member.id)
+                    : (shareCents / 100).toFixed(2);
                 customAmount.dataset.memberId = member.id;
-                customAmount.setAttribute("aria-label", `${member.name}'s share`);
+                customAmount.setAttribute("aria-label", `Amount owed by ${member.name}`);
                 amount.remove();
                 row.append(customAmount);
                 customAmount.addEventListener("input", updateSummary);
@@ -79,21 +105,25 @@ document.addEventListener("DOMContentLoaded", () => {
 
     function updateSummary() {
         const custom = modeSelect.value === "custom";
+        const members = groups.get(groupSelect.value) || [];
         const inputs = Array.from(memberList.querySelectorAll(".split-custom-amount"));
         const selectedInputs = inputs.filter((input) => !input.disabled);
         const allocated = custom
             ? selectedInputs.reduce((sum, input) => sum + (Math.round(Number(input.value) * 100) || 0), 0)
             : totalCents;
         summary.textContent = custom
-            ? `${money(allocated)} of ${money(totalCents)} allocated to ${selectedInputs.length} selected members.`
-            : `Split equally among ${(groups.get(groupSelect.value) || []).length} group members.`;
-        summary.classList.toggle("is-invalid", custom && (!selectedInputs.length || allocated !== totalCents));
+            ? `${money(allocated)} owed by ${selectedInputs.length} selected members; your share is ${money(totalCents - allocated)}.`
+            : `You paid. Split equally among ${members.length} group members.`;
+        summary.classList.toggle(
+            "is-invalid",
+            custom && (!selectedInputs.length || allocated > totalCents)
+        );
     }
 
     groupSelect.addEventListener("change", renderMembers);
     modeSelect.addEventListener("change", renderMembers);
     form.addEventListener("submit", (event) => {
-        if (!groupSelect.value || !payerSelect.value || (modeSelect.value === "custom" && summary.classList.contains("is-invalid"))) {
+        if (!groupSelect.value || (modeSelect.value === "custom" && summary.classList.contains("is-invalid"))) {
             event.preventDefault();
             summary.focus?.();
         }

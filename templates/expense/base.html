@@ -141,9 +141,13 @@
                     Groups
                 </span>
                 <div class="nav-items">
-                    <a href="{% url 'group-list' %}" class="nav-item {% if 'group' in request.resolver_match.url_name %}active{% endif %}">
+                    <a href="{% url 'group-list' %}" class="nav-item {% if request.resolver_match.url_name == 'group-list' or request.resolver_match.url_name == 'group-detail' or request.resolver_match.url_name == 'group-settlement' %}active{% endif %}">
                         <i class="bi bi-people-fill"></i>
                         <span>My Groups</span>
+                    </a>
+                    <a href="{% url 'group-invitations' %}" class="nav-item {% if request.resolver_match.url_name == 'group-invitations' %}active{% endif %}">
+                        <i class="bi bi-envelope"></i>
+                        <span>Invitations</span>
                     </a>
                     <a href="{% url 'group-create' %}" class="nav-item">
                         <i class="bi bi-plus-circle"></i>
@@ -215,18 +219,20 @@
                 {% block page_heading %}{% endblock %}
             </div>
             <div class="topbar-actions">
-                <div class="notification-bell" id="notificationBell" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                <div class="notification-bell" id="notificationBell" role="button" data-bs-toggle="dropdown" aria-expanded="false" data-invitations-url="{% url 'group-invitations' %}" data-notifications-url="{% url 'notification-list' %}" data-notification-read-url="{% url 'notification-mark-read' notification_id='00000000-0000-0000-0000-000000000000' %}" data-notification-read-all-url="{% url 'notification-mark-all-read' %}">
                     <i class="bi bi-bell-fill"></i>
                     <span class="notification-badge d-none" id="notificationBadge">0</span>
                 </div>
                 <div class="dropdown-menu dropdown-menu-end notification-dropdown" id="notificationDropdown">
                     <div class="notification-header">
                         <span>Notifications</span>
+                        <small class="text-muted d-block">Click a notification to mark it as read.</small>
                     </div>
                     <div id="notificationList" class="notification-list">
                         <div class="notification-empty">No new notifications</div>
                     </div>
                 </div>
+                <form id="notificationCsrfForm" class="d-none">{% csrf_token %}</form>
                 {% block topbar_actions %}{% endblock %}
             </div>
         </header>
@@ -290,6 +296,9 @@
 <script src="{% static 'js/app.js' %}"></script>
 {% if user.is_authenticated %}
 <script src="{% static 'js/notifications.js' %}"></script>
+{% endif %}
+{% if request.resolver_match.url_name == 'group-settlement' %}
+<script src="{% static 'js/group_settlement.js' %}"></script>
 {% endif %}
 {% block extra_js %}{% endblock %}
 

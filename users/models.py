@@ -74,6 +74,13 @@ class CustomUser(AbstractUser):
         verbose_name = _("user")
         verbose_name_plural = _("users")
         ordering = ["-created_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["phone_number"],
+                condition=Q(phone_number__isnull=False) & ~Q(phone_number=""),
+                name="unique_customuser_phone_number",
+            ),
+        ]
 
     def __str__(self):
         return self.email
