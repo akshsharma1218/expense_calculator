@@ -10,9 +10,19 @@ urlpatterns = [
         name="transaction-export",
     ),
     path(
-        "accounts/json/",
-        views.account_json,
-        name="account-json",
+        "transactions/template/",
+        views.transaction_template_download,
+        name="transaction-template",
+    ),
+    path(
+        "accounts/template/",
+        views.account_template_download,
+        name="account-template",
+    ),
+    path(
+        "accounts/upload/",
+        views.account_upload,
+        name="account-upload",
     ),
 ]
 
@@ -41,6 +51,11 @@ urlpatterns += [
         "accounts/create/",
         views.account_create,
         name="account-create",
+    ),
+    path(
+        "favorites/",
+        views.favorite_list,
+        name="favorite-list",
     ),
     
     # Transfer
@@ -86,6 +101,16 @@ urlpatterns += [
         views.transaction_update,
         name="transaction-update",
     ),
+    path(
+        "transactions/<uuid:pk>/split/",
+        views.transaction_split,
+        name="transaction-split",
+    ),
+    path(
+        "api/transactions/<uuid:pk>/split/",
+        views.transaction_split_api,
+        name="transaction-split-api",
+    ),
 
     path(
         "transactions/<uuid:pk>/delete/",
@@ -97,6 +122,12 @@ urlpatterns += [
         "transactions/receipt-upload/",
         views.receipt_upload,
         name="receipt-upload",
+    ),
+
+    path(
+        "transactions/text-input/",
+        views.text_transaction_input,
+        name="text-transaction-input",
     ),
 
     path(
@@ -159,6 +190,24 @@ urlpatterns += [
         "groups/<uuid:pk>/settle/",
         views.settlement_create,
         name="group-settlement",
+    ),
+
+    path(
+        "groups/invitations/",
+        views.invitation_list,
+        name="group-invitations",
+    ),
+
+    path(
+        "groups/invitations/<uuid:pk>/accept/",
+        views.invitation_accept,
+        name="group-invitation-accept",
+    ),
+
+    path(
+        "groups/invitations/<uuid:pk>/decline/",
+        views.invitation_decline,
+        name="group-invitation-decline",
     ),
 
     # Reports

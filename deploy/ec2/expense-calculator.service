@@ -1,0 +1,21 @@
+[Unit]
+Description=Expense Calculator Django ASGI service
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=simple
+User=ubuntu
+Group=www-data
+WorkingDirectory=/home/ubuntu/expense_calculator
+EnvironmentFile=/etc/expense-calculator.env
+ExecStart=/home/ubuntu/expense_calculator/.venv/bin/daphne -b 127.0.0.1 -p 8000 expense_calculator.asgi:application
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+UMask=0027
+PrivateTmp=true
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

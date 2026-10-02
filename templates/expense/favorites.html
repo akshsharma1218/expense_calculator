@@ -1,0 +1,77 @@
+{% extends "expense/base.html" %}
+
+{% block title %}Favorites — FinFlow{% endblock %}
+{% block page_heading %}Favorites{% endblock %}
+
+{% block content %}
+<section class="favorites-page" aria-labelledby="favoritesTitle">
+    <header class="favorites-page-heading">
+        <div>
+            <span class="quick-entry-kicker">SAVED PRESETS</span>
+            <h1 class="page-title" id="favoritesTitle">Favorites</h1>
+        </div>
+    </header>
+
+    <section class="favorite-create-panel" aria-labelledby="favoriteCreateTitle">
+        <h2 id="favoriteCreateTitle">Create a favorite</h2>
+        <form method="post" action="{% url 'favorite-list' %}" class="favorite-create-form">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="create">
+            {% for field in favorite_form %}
+            <div class="favorite-create-field">
+                <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+                {{ field }}
+                {% if field.errors %}<div class="invalid-feedback d-block">{{ field.errors|striptags }}</div>{% endif %}
+            </div>
+            {% endfor %}
+            <button type="submit" class="btn btn-primary"><i class="bi bi-bookmark-plus" aria-hidden="true"></i> Create favorite</button>
+        </form>
+    </section>
+
+    <div class="favorite-manager-list" aria-label="Saved favorites">
+        {% for row in favorite_rows %}
+        <article class="favorite-manager-row">
+            <div class="favorite-manager-copy">
+                <span class="favorite-manager-icon" aria-hidden="true"><i class="bi bi-bookmark-heart"></i></span>
+                <div>
+                    <h2>{{ row.favorite.name }}</h2>
+                    <p class="favorite-manager-meta">
+                        {% if row.favorite.category %}<span><i class="bi bi-grid-3x3-gap" aria-hidden="true"></i>{{ row.favorite.category.name }}</span>{% endif %}
+                        {% if row.favorite.account %}<span><i class="bi bi-bank" aria-hidden="true"></i>{{ row.favorite.account.name }}</span>{% endif %}
+                        {% if row.favorite.merchant %}<span><i class="bi bi-shop" aria-hidden="true"></i>{{ row.favorite.merchant.name }}</span>{% endif %}
+                    </p>
+                </div>
+            </div>
+            <div class="favorite-manager-actions">
+                <a class="btn btn-outline-primary" href="{% url 'transaction-create' %}?favorite={{ row.favorite.id }}"><i class="bi bi-arrow-up-left" aria-hidden="true"></i> Use</a>
+                <details class="favorite-edit-details" {% if row.is_editing %}open{% endif %}>
+                    <summary class="btn btn-outline-secondary" aria-label="Edit {{ row.favorite.name }}"><i class="bi bi-pencil" aria-hidden="true"></i> Edit</summary>
+                    <form method="post" action="{% url 'favorite-list' %}" class="favorite-edit-form">
+                        {% csrf_token %}
+                        <input type="hidden" name="action" value="update">
+                        <input type="hidden" name="favorite_id" value="{{ row.favorite.id }}">
+                        {% for field in row.form %}
+                        <div class="favorite-create-field">
+                            <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+                            {{ field }}
+                            {% if field.errors %}<div class="invalid-feedback d-block">{{ field.errors|striptags }}</div>{% endif %}
+                        </div>
+                        {% endfor %}
+                        <button type="submit" class="btn btn-primary"><i class="bi bi-check2" aria-hidden="true"></i> Save changes</button>
+                        {% if row.form.non_field_errors %}<div class="invalid-feedback d-block">{{ row.form.non_field_errors|striptags }}</div>{% endif %}
+                    </form>
+                </details>
+                <form method="post" action="{% url 'favorite-list' %}" onsubmit="return confirm('Delete this favorite?')">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="delete">
+                    <input type="hidden" name="favorite_id" value="{{ row.favorite.id }}">
+                    <button type="submit" class="btn btn-outline-danger" aria-label="Delete {{ row.favorite.name }}"><i class="bi bi-trash3" aria-hidden="true"></i></button>
+                </form>
+            </div>
+        </article>
+        {% empty %}
+        <p class="favorite-empty">No favorites saved yet.</p>
+        {% endfor %}
+    </div>
+</section>
+{% endblock %}

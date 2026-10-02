@@ -84,16 +84,70 @@
                 </span>
                 <div class="nav-items">
                     <a href="{% url 'category-list' %}" class="nav-item {% if 'category' in request.resolver_match.url_name %}active{% endif %}">
-                        <i class="bi bi-tags-fill"></i>
+                        <i class="bi bi-grid-3x3-gap-fill"></i>
                         <span>Categories</span>
                     </a>
                     <a href="{% url 'merchant-list' %}" class="nav-item {% if 'merchant' in request.resolver_match.url_name %}active{% endif %}">
                         <i class="bi bi-shop"></i>
                         <span>Merchants</span>
                     </a>
+                    <a href="{% url 'favorite-list' %}" class="nav-item {% if request.resolver_match.url_name == 'favorite-list' %}active{% endif %}">
+                        <i class="bi bi-bookmark-heart-fill"></i>
+                        <span>Favorites</span>
+                    </a>
                     <a href="{% url 'transfer-list' %}" class="nav-item {% if 'transfer' in request.resolver_match.url_name %}active{% endif %}">
                         <i class="bi bi-repeat"></i>
                         <span>Transfers</span>
+                    </a>
+                </div>
+            </div>
+
+            <div class="nav-section-group">
+                <span class="nav-section-title"><i class="bi bi-file-earmark-spreadsheet"></i> Import &amp; Export</span>
+                <div class="nav-items">
+                    <a href="{% url 'transaction-list' %}#TransactionUploadModal" class="nav-item">
+                        <i class="bi bi-cloud-upload"></i>
+                        <span>Import Transactions</span>
+                    </a>
+                    <a href="{% url 'transaction-list' %}#DownloadTransactionsModal" class="nav-item">
+                        <i class="bi bi-cloud-download"></i>
+                        <span>Export Transactions</span>
+                    </a>
+                    <a href="{% url 'transaction-template' %}" class="nav-item">
+                        <i class="bi bi-download"></i>
+                        <span>Transaction CSV Template</span>
+                    </a>
+                    <a href="{% url 'account-list' %}#account-import" class="nav-item">
+                        <i class="bi bi-bank"></i>
+                        <span>Import Accounts</span>
+                    </a>
+                    <a href="{% url 'account-template' %}" class="nav-item">
+                        <i class="bi bi-download"></i>
+                        <span>Account CSV Template</span>
+                    </a>
+                    {% if user.is_superuser %}
+                    <a href="{% url 'dashboard' %}#ReceiptUploadModal" class="nav-item">
+                        <i class="bi bi-receipt"></i>
+                        <span>Import Receipt</span>
+                    </a>
+                    {% endif %}
+                </div>
+            </div>
+
+            <!-- Groups Section -->
+            <div class="nav-section-group">
+                <span class="nav-section-title">
+                    <i class="bi bi-people-fill"></i>
+                    Groups
+                </span>
+                <div class="nav-items">
+                    <a href="{% url 'group-list' %}" class="nav-item {% if 'group' in request.resolver_match.url_name %}active{% endif %}">
+                        <i class="bi bi-people-fill"></i>
+                        <span>My Groups</span>
+                    </a>
+                    <a href="{% url 'group-create' %}" class="nav-item">
+                        <i class="bi bi-plus-circle"></i>
+                        <span>Create Group</span>
                     </a>
                 </div>
             </div>
@@ -118,19 +172,34 @@
         </nav>
 
         <div class="sidebar-footer">
-            <div class="user-chip">
-                <div class="user-avatar">{{ user.username|slice:":1"|upper }}</div>
+            <div class="user-chip" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                <div class="user-avatar">{{ user.get_full_name|default:user.email|slice:":1"|upper }}</div>
                 <div class="user-info">
-                    <span class="user-name">{{ user.username }}</span>
+                    <span class="user-name">{{ user.get_full_name|default:user.email }}</span>
                     <span class="user-role">Member</span>
                 </div>
+                <i class="bi bi-chevron-down dropdown-indicator"></i>
             </div>
-            <form method="post" action="{% url 'logout' %}" class="logout-form">
-                {% csrf_token %}
-                <button type="submit" class="btn-logout" title="Logout">
-                    <i class="bi bi-box-arrow-right"></i>
-                </button>
-            </form>
+
+            <!-- User dropdown menu -->
+            <div class="dropdown-menu user-dropdown-menu">
+                <a href="{% url 'users:profile' %}" class="dropdown-item">
+                    <i class="bi bi-person-circle"></i>
+                    <span>My Profile</span>
+                </a>
+                <a href="{% url 'users:password_reset' %}" class="dropdown-item">
+                    <i class="bi bi-key"></i>
+                    <span>Change Password</span>
+                </a>
+                <hr class="dropdown-divider">
+                <form method="post" action="{% url 'users:logout' %}" class="logout-form">
+                    {% csrf_token %}
+                    <button type="submit" class="dropdown-item text-danger">
+                        <i class="bi bi-box-arrow-right"></i>
+                        <span>Logout</span>
+                    </button>
+                </form>
+            </div>
         </div>
     </aside>
 
@@ -139,13 +208,25 @@
     <!-- Main -->
     <div class="main-area">
         <header class="topbar">
-            <button class="btn-icon sidebar-toggle" id="sidebarToggle" aria-label="Toggle menu">
+            <button class="btn-icon sidebar-toggle" id="sidebarToggle" aria-label="Toggle sidebar" aria-controls="sidebar" aria-expanded="true">
                 <i class="bi bi-list"></i>
             </button>
             <div class="topbar-title">
                 {% block page_heading %}{% endblock %}
             </div>
             <div class="topbar-actions">
+                <div class="notification-bell" id="notificationBell" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                    <i class="bi bi-bell-fill"></i>
+                    <span class="notification-badge d-none" id="notificationBadge">0</span>
+                </div>
+                <div class="dropdown-menu dropdown-menu-end notification-dropdown" id="notificationDropdown">
+                    <div class="notification-header">
+                        <span>Notifications</span>
+                    </div>
+                    <div id="notificationList" class="notification-list">
+                        <div class="notification-empty">No new notifications</div>
+                    </div>
+                </div>
                 {% block topbar_actions %}{% endblock %}
             </div>
         </header>
@@ -196,6 +277,9 @@
 
 <!-- Modals Context Block (Outside main app structure) -->
 {% block modals %}{% endblock %}
+{% if user.is_authenticated %}
+{% include "expense/components/group_modal.html" %}
+{% endif %}
 
 <script src="https://cdn.jsdelivr.net/npm/tom-select/dist/js/tom-select.complete.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
@@ -204,6 +288,9 @@
 <script src="{% static 'js/charts.js' %}"></script>
 <script src="{% static 'js/tables.js' %}"></script>
 <script src="{% static 'js/app.js' %}"></script>
+{% if user.is_authenticated %}
+<script src="{% static 'js/notifications.js' %}"></script>
+{% endif %}
 {% block extra_js %}{% endblock %}
 
 </body>

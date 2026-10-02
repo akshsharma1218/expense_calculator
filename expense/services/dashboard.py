@@ -2,9 +2,9 @@ from calendar import month_abbr
 from datetime import date
 from decimal import Decimal
 
-from django.db.models import Sum, When, Case, F, DecimalField
+from django.db.models import Sum, When, Case, F, DecimalField, Q
 
-from ..models import Account, Category, EntryType, Transaction
+from ..models import Account, Category, EntryType, GroupBalance, Transaction
 from .base import BaseService
 
 
@@ -200,3 +200,47 @@ class DashboardService(BaseService):
             }
             for account in accounts
         ]
+
+    @staticmethod
+    def owed_amount(*, user):
+        owed = (
+            GroupBalance.objects.filter(
+                from_user=user
+            ).aggregate(total=Sum("balance_amount"))["total"] or Decimal("0.00")
+        )
+        return owed
+
+    @staticmethod
+    def lent_amount(*, user):
+        lent = (
+            GroupBalance.objects.filter(
+                to_user=user
+            ).aggregate(total=Sum("balance_amount"))["total"] or Decimal("0.00")
+        )
+        return lent
+
+    @staticmethod
+    def item_breakdown(*, user, month=None, year=None):
+        filters = {"user": user, "is_deleted": False}
+        if month and year:
+            filters["transaction_date__month"] = month
+            filters["transaction_date__year"] = year
+        rows = (
+            Transaction.objects.filter(**filters)
+            .exclude(category__category_type=Category.CategoryType.TRANSFER)
+            .values("category__name")
+            .annotate(total=Sum(Case(When(entry_type=EntryType.CREDIT, then=-F("amount")), default=F("amount"), output_field=DecimalField())))
+            .order_by("-total")
+        )
+        return [{"name": row["category__name"] or "Uncategorized", "total": float(row["total"] or 0), "type": "expense"} for row in rows]
+
+    @staticmethod
+    def timeline_breakdown(*, user, months=6):
+        today = __import__("datetime").date.today()
+        points = []
+        for offset in range(months - 1, -1, -1):
+            year, month = DashboardService._shift_month(today.year, today.month, -offset)
+            expense = DashboardService.monthly_expense(user=user, month=month, year=year)
+            incomes = DashboardService.monthly_income(user=user, month=month, year=year)
+            points.append({"label": f"{__import__('calendar').month_abbr[month]} {year}", "expense": float(expense), "income": float(incomes)})
+        return points

@@ -17,10 +17,14 @@ venv/
 
 # Environment
 .env
+.env.*
 
 # Django
 media/
 staticfiles/
+*.dump
+db_backup*
+_tmp_fix_users_table.sql
 
 # Logs
 *.log

@@ -1,0 +1,21 @@
+{$DOMAIN}, www.{$DOMAIN} {
+    encode gzip
+
+    @static path /static/*
+    handle @static {
+        uri strip_prefix /static
+        root * /srv
+        file_server
+    }
+
+    @media path /media/*
+    handle @media {
+        uri strip_prefix /media
+        root * /media
+        file_server
+    }
+
+    handle {
+        reverse_proxy web:8000
+    }
+}

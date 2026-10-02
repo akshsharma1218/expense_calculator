@@ -47,9 +47,9 @@ class BulkTransactionUploadService(BaseService):
         # Keep existing ISO support, then allow slash-based CSV dates.
         formats = [
             "%m/%d/%Y",
-            "%Y-%m-%d",
+            "%m-%d-%Y",
         ]
-
+        print(f"Attempting to parse date: {value}")
         for fmt in formats:
             try:
                 return datetime.strptime(value, fmt).date()
@@ -77,17 +77,20 @@ class BulkTransactionUploadService(BaseService):
                 f"File size exceeds {self.MAX_FILE_SIZE // (1024*1024)}MB limit"
             )
         
-        decoded = file.read().decode("utf-8")
+        decoded = file.read().decode("utf-8-sig")
+        print(f"Decoded CSV content:\n{decoded[:500]}...")  # Print first 500 chars for debugging
         reader = csv.DictReader(StringIO(decoded))
-
+        print(f"CSV headers: {reader.fieldnames}")  # Debugging output for headers
         if not reader.fieldnames:
             self._log_warning("Bulk CSV rejected due to missing headers")
             raise ServiceError("CSV file is empty or invalid format")
+        reader.fieldnames = [(field or "").strip().lower() for field in reader.fieldnames]
 
         rows = []
 
         for index, row in enumerate(reader, start=2):
             row["_row"] = index
+            print(f"Extracted row {index}: {row}")  # Debugging output for each row
             rows.append(row)
 
         return rows
@@ -101,7 +104,6 @@ class BulkTransactionUploadService(BaseService):
         required = [
             "amount",
             "category",
-            "merchant",
             "transaction_date",
             "account",
         ]
@@ -118,22 +120,32 @@ class BulkTransactionUploadService(BaseService):
                     )
 
             try:
-                Decimal(row["amount"])
+                amount = Decimal(row["amount"])
+                if not amount.is_finite() or amount == 0:
+                    raise InvalidOperation
             except (InvalidOperation, TypeError, ValueError):
                 errors.append(
                     f"Row {row['_row']}: Invalid amount '{row['amount']}'. Must be a valid decimal."
                 )
 
+            category_type = (row.get("category_type") or "expense").strip().lower()
+            if category_type not in Category.CategoryType.values:
+                errors.append(f"Row {row['_row']}: Invalid category type '{category_type}'.")
+            normal_side = (row.get("category_normal_side") or "").strip().lower()
+            if normal_side and normal_side not in EntryType.values:
+                errors.append(f"Row {row['_row']}: Invalid category normal side '{normal_side}'.")
+
             # Validate date format
             parsed_date = self._parse_transaction_date(row.get("transaction_date", ""))
             if not parsed_date:
                 errors.append(
-                    f"Row {row['_row']}: Invalid date format '{row.get('transaction_date')}'. Use YYYY-MM-DD, DD/MM/YYYY, or MM/DD/YYYY format."
+                    f"Row {row['_row']}: Invalid date format '{row.get('transaction_date')}'. Use MM/DD/YYYY or MM-DD-YYYY."
                 )
             else:
                 # Normalize for downstream service/model handling.
                 row["transaction_date"] = parsed_date.isoformat()
 
+            print(f"Row {row} validated successfully.")
         if errors:
             raise ServiceError(
                 f"Validation failed with {len(errors)} error(s):\n"
@@ -187,12 +199,22 @@ class BulkTransactionUploadService(BaseService):
         missing = names - existing.keys()
 
         if missing:
+            category_specs = {}
+            for row in rows:
+                name = (row.get("category") or "").strip()
+                if name not in missing or name in category_specs:
+                    continue
+                category_type = (row.get("category_type") or "expense").strip().lower()
+                normal_side = (row.get("category_normal_side") or "").strip().lower()
+                if not normal_side:
+                    normal_side = EntryType.CREDIT if category_type == Category.CategoryType.INCOME else EntryType.DEBIT
+                category_specs[name] = (category_type, normal_side)
 
             new_categories = [
                 Category(
                     name=name,
-                    category_type=Category.CategoryType.EXPENSE,
-                    normal_side=EntryType.DEBIT,
+                    category_type=category_specs[name][0],
+                    normal_side=category_specs[name][1],
                     created_by=user,
                     is_system=False,
                 )
@@ -330,6 +352,7 @@ class BulkTransactionUploadService(BaseService):
 
             try:
                 amount = Decimal(row["amount"])
+                merchant_name = (row.get("merchant") or "").strip()
                 self._log_info(
                     f"{user}, type(user): {type(user)}, user.id: {getattr(user, 'id', None)}, row: {row}"
                 )
@@ -337,14 +360,12 @@ class BulkTransactionUploadService(BaseService):
                     user=user,
                     account=account_cache[row["account"].strip()],
                     category=category_cache[row["category"].strip()],
-                    merchant=merchant_cache[row["merchant"].strip()],
-                    amount=abs(amount),
+                    merchant=merchant_cache.get(merchant_name),
+                    amount=amount,
                     transaction_date=row["transaction_date"],
                     description=row.get("description", ""),
                     is_group_expense=False,
                     items=None,
-                    tags=None,
-                    refund = amount < 0,
                 )
                 created += 1
                 

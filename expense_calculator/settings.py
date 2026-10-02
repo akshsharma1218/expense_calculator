@@ -85,12 +85,15 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 # Application definition
 
 INSTALLED_APPS = [
+    'daphne',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'channels',
+    'users',  # Custom user app must be before expense app
     'expense',
 ]
 
@@ -127,6 +130,33 @@ TEMPLATES = [
 
 
 WSGI_APPLICATION = 'expense_calculator.wsgi.application'
+ASGI_APPLICATION = 'expense_calculator.asgi.application'
+
+# ============================================================
+# REALTIME NOTIFICATIONS (Django Channels)
+# ============================================================
+# Uses Redis when REDIS_URL is configured so notifications work across
+# multiple worker processes; falls back to an in-memory layer (single
+# process only) for local development.
+
+REDIS_URL = os.getenv("REDIS_URL", "")
+
+if REDIS_URL:
+    CHANNEL_LAYERS = {
+        "default": {
+            "BACKEND": "channels_redis.core.RedisChannelLayer",
+            "CONFIG": {
+                "hosts": [REDIS_URL],
+            },
+        },
+    }
+else:
+    CHANNEL_LAYERS = {
+        "default": {
+            "BACKEND": "channels.layers.InMemoryChannelLayer",
+        },
+    }
+
 
 
 # Database
@@ -136,11 +166,11 @@ WSGI_APPLICATION = 'expense_calculator.wsgi.application'
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.postgresql",
-        "NAME": os.getenv("POSTGRES_DB"),
-        "USER": os.getenv("POSTGRES_USER"),
-        "PASSWORD": os.getenv("POSTGRES_PASSWORD"),
-        "HOST": os.getenv("POSTGRES_HOST"),
-        "PORT": os.getenv("POSTGRES_PORT"),
+        "NAME": os.getenv("POSTGRES_DB", "expense_calculator_db"),
+        "USER": os.getenv("POSTGRES_USER", "expense_calculator_user"),
+        "PASSWORD": os.getenv("POSTGRES_PASSWORD", ""),
+        "HOST": os.getenv("POSTGRES_HOST", os.getenv("DB_HOST", "localhost")),
+        "PORT": os.getenv("POSTGRES_PORT", os.getenv("DB_PORT", "5432")),
         "OPTIONS": {
             "options": "-c search_path=expense"
         },
@@ -151,6 +181,8 @@ DATABASES = {
 
 # Password validation
 # https://docs.djangoproject.com/en/6.0/ref/settings/#auth-password-validators
+
+AUTH_USER_MODEL = 'users.CustomUser'
 
 AUTH_PASSWORD_VALIDATORS = [
     {
@@ -187,11 +219,32 @@ STATIC_URL = '/static/'
 STATICFILES_DIRS = [
     BASE_DIR / "static",
 ]
-STATIC_ROOT = '/app/staticfiles'
+STATIC_ROOT = Path(os.getenv("STATIC_ROOT", str(BASE_DIR / "staticfiles")))
+MEDIA_URL = "/media/"
+MEDIA_ROOT = Path(os.getenv("MEDIA_ROOT", str(BASE_DIR / "media")))
 
-LOGIN_URL = "login"
-LOGIN_REDIRECT_URL = "dashboard"
-LOGOUT_REDIRECT_URL = "login"
+LOGIN_URL = "users:login"
+LOGIN_REDIRECT_URL = "favorite-list"
+LOGOUT_REDIRECT_URL = "users:login"
+
+# ============================================================
+# EMAIL CONFIGURATION FOR PASSWORD RESET
+# ============================================================
+
+EMAIL_BACKEND = os.getenv(
+    "EMAIL_BACKEND",
+    "django.core.mail.backends.console.EmailBackend" if DEBUG
+    else "django.core.mail.backends.smtp.EmailBackend"
+)
+
+EMAIL_HOST = os.getenv("EMAIL_HOST", "smtp.gmail.com")
+EMAIL_PORT = int(os.getenv("EMAIL_PORT", "587"))
+EMAIL_USE_TLS = os.getenv("EMAIL_USE_TLS", "True").lower() == "true"
+EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER", "")
+EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD", "")
+DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "noreply@finflow.app")
+SERVER_EMAIL = os.getenv("SERVER_EMAIL", "server@finflow.app")
+
 
 # Create logs directory and configure log levels
 LOGS_DIR = BASE_DIR / 'logs'

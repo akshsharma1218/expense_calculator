@@ -1,18 +1,23 @@
 from datetime import date
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
+from io import StringIO
 import json
 import csv
 import logging
 from calendar import month_abbr
 from django.contrib import messages
+from django.contrib.auth import get_user_model
 from django.contrib.auth.decorators import login_required
-from django.db.models import DecimalField, ProtectedError, Sum, Case, When, F
+from django.db.models import DecimalField, ProtectedError, Sum, Case, When, F, Q
+from django.db import transaction as db_transaction
 from django.shortcuts import (
     render,
     redirect,
     get_object_or_404,
 )
-from django.http import HttpResponse
+from django.utils import timezone
+from django.http import HttpResponse, JsonResponse
+from django.views.decorators.http import require_POST
 
 from .models import (
     Account,
@@ -20,10 +25,11 @@ from .models import (
     EntryType,
     Merchant,
     Transaction,
-    TransactionItem,
     Transfer,
     Budget,
     ExpenseGroup,
+    GroupInvitation,
+    FavoriteDescription,
 )
 
 from .forms import (
@@ -36,8 +42,12 @@ from .forms import (
     TransferForm,
     BudgetForm,
     ExpenseGroupForm,
-    TransactionItemFormSet,
+    GroupInvitationForm,
     SettlementForm,
+    QuickTransactionForm,
+    FavoriteDescriptionForm,
+    SplitTransactionForm,
+    AccountCSVUploadForm,
 )
 
 from django.contrib.auth.forms import UserCreationForm
@@ -46,9 +56,11 @@ from .services import (
     BulkTransactionUploadService,
     BudgetService,
     DashboardService,
+    GroupInvitationService,
     GroupService,
     ReceiptService,
     ServiceError,
+    TextTransactionService,
     TransactionService,
     TransferService,
     SettlementService,
@@ -139,30 +151,6 @@ def _form_error_list(form):
     ]
 
 
-def _collect_transaction_items(formset):
-    items = []
-
-    for item_form in formset:
-        if not item_form.cleaned_data:
-            continue
-
-        if item_form.cleaned_data.get("DELETE"):
-            continue
-
-        quantity = item_form.cleaned_data["quantity"]
-        unit_price = item_form.cleaned_data["unit_price"]
-        item_total = quantity * unit_price
-
-        items.append({
-            "name": item_form.cleaned_data["name"],
-            "quantity": quantity,
-            "unit_price": unit_price,
-            "total_price": item_total,
-        })
-
-    return items
-
-
 def _transaction_fields_from_form(form):
     return {
         "category": form.cleaned_data["category"],
@@ -170,8 +158,7 @@ def _transaction_fields_from_form(form):
         "transaction_date": form.cleaned_data["transaction_date"],
         "description": form.cleaned_data["description"],
         "account": form.cleaned_data["account"],
-        "amount": form.cleaned_data["amount"],
-        "refund": form.cleaned_data.get("refund"),
+        "amount": -form.cleaned_data["amount"] if form.amount_is_negative else form.cleaned_data["amount"],
     }
 
 
@@ -303,6 +290,45 @@ def receipt_upload(request):
 
 
 @login_required
+def text_transaction_input(request):
+    if request.method != "POST":
+        _log_warning("Text input rejected: invalid method", **_request_context(request))
+        return redirect("transaction-list")
+
+    text = request.POST.get("text", "").strip()
+    if not text:
+        _flash_error(request, "Please enter transaction details.")
+        return redirect("transaction-list")
+
+    try:
+        payload = TextTransactionService.extract(text=text)
+        request.session["transaction_initial"] = {
+            "form": {
+                "amount": payload["amount"],
+                "transaction_date": payload["transaction_date"],
+                "description": payload["description"],
+            },
+            "items": payload["items"],
+        }
+        _log_info(
+            "Text transaction parsed successfully",
+            **_request_context(request),
+            amount=payload["amount"],
+            item_count=len(payload.get("items", [])),
+        )
+        _flash_success(request, "Transaction parsed. Review and save.")
+        return redirect("transaction-create")
+    except ServiceError as exc:
+        _log_error("Text transaction service error", exc_info=True, **_request_context(request))
+        _flash_error(request, f"Error parsing transaction: {str(exc)}", exc_info=True)
+        return redirect("transaction-list")
+    except Exception as exc:
+        _log_exception("Text transaction unexpected error", **_request_context(request))
+        _flash_error(request, f"Unexpected error: {str(exc)}", exc_info=True)
+        return redirect("transaction-list")
+
+
+@login_required
 def transactions_upload(request):
     if request.method != "POST":
         _log_warning("Transactions upload rejected: invalid method", **_request_context(request))
@@ -420,6 +446,38 @@ def transactions_upload(request):
 def dashboard(request):
     _log_info("Rendering dashboard", user_id=request.user.id, path=request.path)
 
+    quick_add_form = QuickTransactionForm(user=request.user)
+    quick_add_ready = quick_add_form.fields["favorite"].queryset.exists()
+
+    if request.method == "POST":
+        action = request.POST.get("action")
+        if action == "quick_add":
+            form = QuickTransactionForm(request.POST, user=request.user)
+            if not quick_add_ready:
+                _flash_error(request, "Create a favorite with an active account and category before using quick add.")
+            elif form.is_valid():
+                try:
+                    favorite = form.cleaned_data["favorite"]
+                    TransactionService.create_transaction(
+                        user=request.user,
+                        account=favorite.account,
+                        category=favorite.category,
+                        merchant=favorite.merchant,
+                        amount=form.cleaned_data["amount"],
+                        description=favorite.description or favorite.name,
+                        transaction_date=timezone.localdate(),
+                    )
+                except ServiceError as exc:
+                    _flash_error(request, str(exc), exc_info=True)
+                else:
+                    _flash_success(request, "Transaction added.")
+                    return redirect("dashboard")
+            else:
+                for errors in form.errors.values():
+                    for error in errors:
+                        _flash_error(request, error)
+            return redirect("dashboard")
+
     today = date.today()
 
     monthly_trend = DashboardService.monthly_trend(user=request.user)
@@ -431,6 +489,8 @@ def dashboard(request):
     account_distribution = DashboardService.account_distribution(user=request.user)
 
     context = {
+        "quick_add_form": quick_add_form,
+        "quick_add_ready": quick_add_ready,
         "accounts": Account.objects.filter(
             user=request.user,
             is_active=True,
@@ -448,12 +508,16 @@ def dashboard(request):
             month=today.month,
             year=today.year,
         ),
+        "owed_amount": DashboardService.owed_amount(user=request.user),
+        "lent_amount": DashboardService.lent_amount(user=request.user),
         "recent_transactions": DashboardService.recent_transactions(
             user=request.user
         ),
         "chart_monthly_trend": json.dumps(monthly_trend),
         "chart_category_breakdown": json.dumps(category_breakdown),
         "chart_account_distribution": json.dumps(account_distribution),
+        "chart_item_breakdown": json.dumps(DashboardService.item_breakdown(user=request.user, month=today.month, year=today.year)),
+        "chart_timeline_breakdown": json.dumps(DashboardService.timeline_breakdown(user=request.user, months=6)),
         "current_month_label": f"{month_abbr[today.month]} {today.year}",
         "receipt_upload_form": ReceiptUploadForm(),
         "transactions_upload_form": TransactionsUploadForm(),
@@ -471,6 +535,67 @@ def dashboard(request):
         request,
         "expense/dashboard.html",
         context,
+    )
+
+
+@login_required
+def favorite_list(request):
+    favorites = FavoriteDescription.objects.filter(user=request.user).order_by("name")
+    create_form = FavoriteDescriptionForm(user=request.user)
+    edit_form = None
+    editing_favorite_id = None
+
+    if request.method == "POST":
+        action = request.POST.get("action")
+        if action == "create":
+            create_form = FavoriteDescriptionForm(request.POST, user=request.user)
+            if create_form.is_valid():
+                favorite = create_form.save(commit=False)
+                favorite.user = request.user
+                favorite.save()
+                create_form.save_m2m()
+                _flash_success(request, "Favorite created.")
+                return redirect("favorite-list")
+        elif action == "update":
+            favorite = get_object_or_404(
+                favorites,
+                pk=request.POST.get("favorite_id"),
+            )
+            edit_form = FavoriteDescriptionForm(
+                request.POST,
+                instance=favorite,
+                user=request.user,
+                prefix=str(favorite.pk),
+            )
+            editing_favorite_id = str(favorite.pk)
+            if edit_form.is_valid():
+                edit_form.save()
+                _flash_success(request, "Favorite updated.")
+                return redirect("favorite-list")
+        elif action == "delete":
+            favorite = get_object_or_404(
+                favorites,
+                pk=request.POST.get("favorite_id"),
+            )
+            favorite.delete()
+            _flash_success(request, "Favorite deleted.")
+            return redirect("favorite-list")
+
+    favorite_rows = [
+        {
+            "favorite": favorite,
+            "form": edit_form if editing_favorite_id == str(favorite.pk) else FavoriteDescriptionForm(instance=favorite, user=request.user, prefix=str(favorite.pk)),
+            "is_editing": editing_favorite_id == str(favorite.pk),
+        }
+        for favorite in favorites
+    ]
+    return render(
+        request,
+        "expense/favorites.html",
+        {
+            "favorite_rows": favorite_rows,
+            "favorite_form": create_form,
+        },
     )
 
 
@@ -519,8 +644,102 @@ def account_list(request):
             "accounts": accounts,
             "accounts_json": json.dumps(accounts_data),
             "total_balance": total_balance,
+            "account_upload_form": AccountCSVUploadForm(),
         },
     )
+
+
+@login_required
+def account_template_download(request):
+    response = HttpResponse(content_type="text/csv; charset=utf-8")
+    response["Content-Disposition"] = 'attachment; filename="accounts-template.csv"'
+    writer = csv.writer(response)
+    writer.writerow(["name", "account_type", "opening_balance"])
+    writer.writerow(["Everyday Wallet", "wallet", "0.00"])
+    return response
+
+
+@login_required
+def account_upload(request):
+    if request.method != "POST":
+        return redirect("account-list")
+
+    form = AccountCSVUploadForm(request.POST, request.FILES)
+    if not form.is_valid():
+        for error in _form_error_list(form):
+            _flash_error(request, error)
+        return redirect("account-list")
+
+    try:
+        content = form.cleaned_data["csv_file"].read().decode("utf-8-sig")
+        reader = csv.DictReader(StringIO(content))
+    except (UnicodeDecodeError, csv.Error):
+        _flash_error(request, "The account CSV must be a valid UTF-8 CSV file.")
+        return redirect("account-list")
+
+    if not reader.fieldnames:
+        _flash_error(request, "The account CSV is missing its header row.")
+        return redirect("account-list")
+
+    reader.fieldnames = [(header or "").strip().lower() for header in reader.fieldnames]
+    required = {"name", "account_type", "opening_balance"}
+    missing = required - set(reader.fieldnames)
+    if missing:
+        _flash_error(request, f"Missing CSV columns: {', '.join(sorted(missing))}.")
+        return redirect("account-list")
+
+    valid_types = {value for value, _label in Account.AccountType.choices}
+    existing_names = {
+        name.casefold()
+        for name in Account.objects.filter(user=request.user).values_list("name", flat=True)
+    }
+    seen_names = set()
+    new_accounts = []
+    errors = []
+    for line_number, row in enumerate(reader, start=2):
+        values = {(key or "").strip().lower(): (value or "").strip() for key, value in row.items()}
+        if not any(values.values()):
+            continue
+        error_count = len(errors)
+        name = values.get("name", "")
+        account_type = values.get("account_type", "").casefold().replace(" ", "_")
+        raw_balance = values.get("opening_balance", "")
+        if not name:
+            errors.append(f"Row {line_number}: account name is required.")
+        elif len(name) > 100:
+            errors.append(f"Row {line_number}: account name must be 100 characters or fewer.")
+        elif name.casefold() in existing_names or name.casefold() in seen_names:
+            errors.append(f"Row {line_number}: account '{name}' already exists.")
+        if account_type not in valid_types:
+            errors.append(f"Row {line_number}: invalid account type '{account_type}'.")
+        try:
+            opening_balance = Decimal(raw_balance)
+            if not opening_balance.is_finite() or opening_balance < 0:
+                raise InvalidOperation
+        except (InvalidOperation, TypeError, ValueError):
+            errors.append(f"Row {line_number}: opening balance must be a non-negative amount.")
+            opening_balance = None
+        if len(errors) == error_count:
+            seen_names.add(name.casefold())
+            new_accounts.append(Account(
+                user=request.user,
+                name=name,
+                account_type=account_type,
+                opening_balance=opening_balance,
+                current_balance=opening_balance,
+            ))
+
+    if errors:
+        _flash_error(request, "No accounts were imported. " + " ".join(errors[:8]))
+        return redirect("account-list")
+    if not new_accounts:
+        _flash_error(request, "The CSV contains no account rows to import.")
+        return redirect("account-list")
+
+    with db_transaction.atomic():
+        Account.objects.bulk_create(new_accounts)
+    _flash_success(request, f"Imported {len(new_accounts)} account(s).")
+    return redirect("account-list")
 
 
 @login_required
@@ -596,6 +815,7 @@ def transaction_list(request):
             "account__name",
             "category__name",
             "merchant__name",
+            "is_group_expense",
         )
         .order_by(
             "-transaction_date",
@@ -615,6 +835,9 @@ def transaction_list(request):
             "description": txn.description or "",
             "delete_url": f"/transactions/{txn.id}/delete/",
             "edit_url": f"/transactions/{txn.id}/edit/",
+            "split_url": f"/transactions/{txn.id}/split/",
+            "is_group_expense": txn.is_group_expense,
+            "is_expense": txn.entry_type == EntryType.DEBIT and txn.category.category_type != Category.CategoryType.TRANSFER,
         }
         for txn in transactions
     ]
@@ -651,22 +874,13 @@ def transaction_create(request):
             user=request.user,
         )
 
-        formset = TransactionItemFormSet(
-            request.POST,
-            queryset=TransactionItem.objects.none(),
-            prefix="items",
-        )
-        if form.is_valid() and formset.is_valid():
-
-            items = _collect_transaction_items(formset)
+        if form.is_valid():
             try:
                 shared = {
                     "user": request.user,
-                    "tags": form.cleaned_data["tags"],
                     **_transaction_fields_from_form(form),
                 }
                 TransactionService.create_transaction(
-                    items=items,
                     **shared,
                 )
             except ServiceError as exc:
@@ -677,18 +891,29 @@ def transaction_create(request):
 
     else:
         initial = _get_transaction_initial(request)
+        if not initial and request.GET.get("favorite"):
+            favorite = get_object_or_404(
+                FavoriteDescription.objects,
+                pk=request.GET["favorite"],
+                user=request.user,
+            )
+            initial = {
+                "form": {
+                    "description": favorite.name,
+                    "account": favorite.account_id,
+                    "category": favorite.category_id,
+                    "merchant": favorite.merchant_id,
+                },
+                "items": [],
+            }
+        elif not initial and request.GET.get("description"):
+            initial = {"form": {"description": request.GET["description"]}, "items": []}
 
         if initial:
 
             form = TransactionForm(
                 user=request.user,
                 initial=initial["form"],
-            )
-            TransactionItemFormSet.extra = max(0, len(initial["items"]) - 1)
-            formset = TransactionItemFormSet(
-                queryset=TransactionItem.objects.none(),
-                prefix="items",
-                initial=initial["items"],
             )
 
         else:
@@ -697,17 +922,11 @@ def transaction_create(request):
                 user=request.user,
             )
 
-            formset = TransactionItemFormSet(
-                queryset=TransactionItem.objects.none(),
-                prefix="items",
-            )
-
     return render(
         request,
         "expense/transaction/form.html",
         {
             "form": form,
-            "formset": formset,
             "is_edit": False,
         },
     )
@@ -731,20 +950,10 @@ def transaction_update(request, pk):
             user=request.user,
         )
 
-        formset = TransactionItemFormSet(
-            request.POST,
-            queryset=transaction.items.all(),
-            prefix="items",
-        )
-
-        if form.is_valid() and formset.is_valid():
-
-            items = _collect_transaction_items(formset)
+        if form.is_valid():
             try:
                 TransactionService.update_transaction(
                     transaction_obj=transaction,
-                    items=items,
-                    tags=form.cleaned_data["tags"],
                     **_transaction_fields_from_form(form),
                 )
             except ServiceError as exc:
@@ -760,20 +969,148 @@ def transaction_update(request, pk):
             user=request.user,
         )
 
-        formset = TransactionItemFormSet(
-            queryset=transaction.items.all(),
-            prefix="items",
-        )
-
     return render(
         request,
         "expense/transaction/form.html",
         {
             "form": form,
-            "formset": formset,
             "transaction": transaction,
             "is_edit": True,
         },
+    )
+
+
+def _create_transaction_split(transaction, user, form):
+    group_members = {
+        str(member.user_id): member.user
+        for member in form.cleaned_data["group"].members.select_related("user")
+    }
+    custom_splits = [
+        {"user": group_members[str(share["user_id"])], "amount": share["amount"]}
+        for share in form.cleaned_data["custom_shares"]
+        if share.get("selected", True)
+    ] if form.cleaned_data["split_mode"] == "custom" else None
+    return GroupService.split_existing_transaction(
+        transaction_obj=transaction,
+        group=form.cleaned_data["group"],
+        paid_by=form.cleaned_data["paid_by"],
+        split_mode=form.cleaned_data["split_mode"],
+        splits=custom_splits,
+    )
+
+
+@login_required
+def transaction_split(request, pk):
+    transaction = get_object_or_404(
+        Transaction.objects.select_related("account", "category"),
+        pk=pk,
+        user=request.user,
+        is_deleted=False,
+    )
+    form = SplitTransactionForm(
+        request.POST or None,
+        user=request.user,
+        transaction=transaction,
+    )
+    if request.method == "POST" and form.is_valid():
+        try:
+            _create_transaction_split(transaction, request.user, form)
+        except ServiceError as exc:
+            form.add_error(None, str(exc))
+        else:
+            _flash_success(request, "Transaction split added.")
+            return redirect("transaction-list")
+
+    group_member_data = [
+        {
+            "id": str(group.pk),
+            "members": [
+                {
+                    "id": str(member.user_id),
+                    "name": member.user.get_full_name().strip() or member.user.email,
+                }
+                for member in group.members.select_related("user")
+            ],
+        }
+        for group in form.fields["group"].queryset.prefetch_related("members__user")
+    ]
+    return render(
+        request,
+        "expense/transaction/split.html",
+        {
+            "transaction": transaction,
+            "form": form,
+            "group_member_data": group_member_data,
+        },
+    )
+
+
+@login_required
+@require_POST
+def transaction_split_api(request, pk):
+    transaction = get_object_or_404(
+        Transaction.objects.select_related("account", "category"),
+        pk=pk,
+        user=request.user,
+        is_deleted=False,
+    )
+    try:
+        payload = json.loads(request.body or b"{}")
+    except (TypeError, ValueError):
+        return JsonResponse({"errors": {"body": ["Request body must contain valid JSON."]}}, status=400)
+    if not isinstance(payload, dict):
+        return JsonResponse({"errors": {"body": ["Request body must be a JSON object."]}}, status=400)
+
+    form_data = {
+        "group": payload.get("group_id", ""),
+        "paid_by": payload.get("paid_by_id", ""),
+        "split_mode": payload.get("split_mode", ""),
+    }
+    if form_data["split_mode"] == "custom":
+        shares = payload.get("splits", [])
+        if not isinstance(shares, list):
+            return JsonResponse({"errors": {"splits": [{"message": "Custom splits must be a list."}]}}, status=400)
+        selected_ids = []
+        seen_ids = set()
+        for share in shares:
+            if not isinstance(share, dict):
+                return JsonResponse({"errors": {"splits": [{"message": "Each split must identify a member and amount."}]}}, status=400)
+            selected = share.get("selected", True)
+            if not isinstance(selected, bool):
+                return JsonResponse({"errors": {"splits": [{"message": "Selected must be true or false."}]}}, status=400)
+            if not selected:
+                continue
+            raw_user_id = share.get("user_id")
+            if isinstance(raw_user_id, bool) or not isinstance(raw_user_id, (str, int)):
+                return JsonResponse({"errors": {"splits": [{"message": "Each split needs a valid member."}]}}, status=400)
+            user_id = str(raw_user_id)
+            if user_id in seen_ids:
+                return JsonResponse({"errors": {"splits": [{"message": "A member can only be selected once."}]}}, status=400)
+            seen_ids.add(user_id)
+            selected_ids.append(user_id)
+            form_data[f"share_{user_id}"] = share.get("amount", "")
+        form_data["selected_members"] = selected_ids
+    form = SplitTransactionForm(form_data, user=request.user, transaction=transaction)
+    if not form.is_valid():
+        return JsonResponse({"errors": form.errors.get_json_data()}, status=400)
+
+    try:
+        expense = _create_transaction_split(transaction, request.user, form)
+    except ServiceError as exc:
+        return JsonResponse({"errors": {"split": [{"message": str(exc)}]}}, status=400)
+
+    return JsonResponse(
+        {
+            "expense_id": str(expense.pk),
+            "transaction_id": str(transaction.pk),
+            "group_id": str(expense.group_id),
+            "paid_by_id": expense.paid_by_id,
+            "shares": [
+                {"user_id": share.user_id, "amount": str(share.share_amount)}
+                for share in expense.splits.all()
+            ],
+        },
+        status=201,
     )
 
 @login_required
@@ -874,10 +1211,10 @@ def transfer_update(request, pk):
 
         form = TransferForm(
             initial={
-                "from_account": transfer.from_account,
-                "to_account": transfer.to_account,
+                "from_account": transfer.debit_transaction.account,
+                "to_account": transfer.credit_transaction.account,
                 "amount": transfer.amount,
-                "transaction_date": transfer.transaction_date,
+                "transaction_date": transfer.debit_transaction.transaction_date,
                 "notes": transfer.notes,
             },
             user=request.user,
@@ -1155,7 +1492,7 @@ def group_create(request):
 
         if form.is_valid():
 
-            GroupService.create_group(
+            group = GroupService.create_group(
                 name=form.cleaned_data["name"],
                 description=form.cleaned_data[
                     "description"
@@ -1163,10 +1500,38 @@ def group_create(request):
                 created_by=request.user,
             )
 
-            _flash_success(
-                request,
-                "Group created."
-            )
+            member_emails = [
+                email.strip()
+                for email in request.POST.getlist("members")
+                if email.strip()
+            ]
+
+            invited_count = 0
+            for email in member_emails:
+                invited_user = get_user_model().objects.filter(email__iexact=email).first()
+                if invited_user is None:
+                    _flash_error(request, f"No user found with email {email}.")
+                    continue
+                try:
+                    GroupInvitationService.invite_member(
+                        group=group,
+                        invited_user=invited_user,
+                        invited_by=request.user,
+                    )
+                    invited_count += 1
+                except ServiceError as exc:
+                    _flash_error(request, str(exc))
+
+            if invited_count:
+                _flash_success(
+                    request,
+                    f"Group created. {invited_count} invite(s) sent."
+                )
+            else:
+                _flash_success(
+                    request,
+                    "Group created."
+                )
 
             return redirect(
                 "group-list"
@@ -1186,15 +1551,106 @@ def group_create(request):
 
 
 @login_required
+def invitation_list(request):
+
+    invitations = (
+        GroupInvitation.objects
+        .filter(invited_user=request.user, status=GroupInvitation.Status.PENDING)
+        .select_related("group", "invited_by")
+        .order_by("-created_at")
+    )
+
+    if request.headers.get("x-requested-with") == "XMLHttpRequest":
+        return JsonResponse({
+            "invitations": [
+                {
+                    "id": str(invitation.id),
+                    "group_name": invitation.group.name,
+                    "invited_by": str(invitation.invited_by),
+                    "created_at": invitation.created_at.isoformat(),
+                }
+                for invitation in invitations
+            ]
+        })
+
+    return render(
+        request,
+        "expense/group/invitations.html",
+        {
+            "invitations": invitations
+        },
+    )
+
+
+@login_required
+@require_POST
+def invitation_accept(request, pk):
+
+    invitation = get_object_or_404(GroupInvitation, pk=pk, invited_user=request.user)
+
+    try:
+        GroupInvitationService.accept_invitation(invitation=invitation, user=request.user)
+        _flash_success(request, f"You joined \"{invitation.group.name}\".")
+    except ServiceError as exc:
+        _flash_error(request, str(exc))
+
+    if request.headers.get("x-requested-with") == "XMLHttpRequest":
+        return JsonResponse({"status": "ok"})
+
+    return redirect("group-invitations")
+
+
+@login_required
+@require_POST
+def invitation_decline(request, pk):
+
+    invitation = get_object_or_404(GroupInvitation, pk=pk, invited_user=request.user)
+
+    try:
+        GroupInvitationService.decline_invitation(invitation=invitation, user=request.user)
+        _flash_success(request, f"Invitation to \"{invitation.group.name}\" declined.")
+    except ServiceError as exc:
+        _flash_error(request, str(exc))
+
+    if request.headers.get("x-requested-with") == "XMLHttpRequest":
+        return JsonResponse({"status": "ok"})
+
+    return redirect("group-invitations")
+
+
+@login_required
 def group_detail(
     request,
     pk
 ):
 
     group = get_object_or_404(
-        ExpenseGroup,
+        ExpenseGroup.objects.filter(members__user=request.user),
         pk=pk,
     )
+
+    invite_form = GroupInvitationForm(request.POST or None)
+    if request.method == "POST" and invite_form.is_valid():
+        invited_user = get_user_model().objects.find_by_identifier(
+            invite_form.cleaned_data["email"]
+        )
+        if invited_user is None:
+            invite_form.add_error(
+                "email",
+                "No unique account matches that email, phone number, or username.",
+            )
+        else:
+            try:
+                GroupInvitationService.invite_member(
+                    group=group,
+                    invited_user=invited_user,
+                    invited_by=request.user,
+                )
+            except ServiceError as exc:
+                invite_form.add_error("email", str(exc))
+            else:
+                _flash_success(request, f"Invitation sent to {invited_user.email}.")
+                return redirect("group-detail", pk=group.pk)
 
     context = {
 
@@ -1216,6 +1672,8 @@ def group_detail(
                 "from_user",
                 "to_user",
             ),
+
+        "invite_form": invite_form,
     }
 
     return render(
@@ -1722,6 +2180,40 @@ def merchant_delete(request, pk):
 # ============================================================
 
 @login_required
+def transaction_template_download(request):
+    account = (
+        Account.objects.filter(user=request.user, is_active=True)
+        .exclude(account_type=Account.AccountType.INVESTMENT)
+        .order_by("name")
+        .first()
+    )
+    category = Category.objects.filter(
+        category_type=Category.CategoryType.EXPENSE,
+    ).filter(
+        Q(is_system=True) | Q(created_by=request.user)
+    ).order_by("name").first()
+
+    response = HttpResponse(content_type="text/csv; charset=utf-8")
+    response["Content-Disposition"] = 'attachment; filename="transactions-template.csv"'
+    writer = csv.writer(response)
+    writer.writerow([
+        "account", "category", "category_type", "category_normal_side",
+        "merchant", "amount", "transaction_date", "description",
+    ])
+    writer.writerow([
+        account.name if account else "Create an account first",
+        category.name if category else "Food",
+        category.category_type if category else Category.CategoryType.EXPENSE,
+        category.normal_side if category else EntryType.DEBIT,
+        "Example merchant",
+        "25.00",
+        f"{date.today().month}/{date.today().day}/{date.today().year}",
+        "Example expense",
+    ])
+    return response
+
+
+@login_required
 def transaction_export(request):
     """Export transactions as CSV."""
     _log_info(
@@ -1733,7 +2225,7 @@ def transaction_export(request):
     )
     
     # Start with user's transactions
-    queryset = Transaction.objects.filter(user=request.user).select_related(
+    queryset = Transaction.objects.filter(user=request.user, is_deleted=False).select_related(
         'account', 'category', 'merchant'
     ).order_by('-transaction_date')
     
@@ -1756,23 +2248,23 @@ def transaction_export(request):
     response = HttpResponse(content_type='text/csv')
     response['Content-Disposition'] = f'attachment; filename="transactions-{date.today().isoformat()}.csv"'
     
+    # Keep this header aligned with the transaction importer.
     writer = csv.writer(response)
     writer.writerow([
-        'Category', 'Amount', 'Date', 'Account', 'Description', 'Month', 'Quater', 'Year', 'Entry Type', 'Merchant'
+        'account', 'category', 'category_type', 'category_normal_side',
+        'merchant', 'amount', 'transaction_date', 'description'
     ])
     
     for txn in queryset:
         writer.writerow([
-            txn.category.name,
-            f"{txn.amount:.2f}" if txn.entry_type == EntryType.DEBIT else f"{-txn.amount:.2f}",
-            txn.transaction_date.strftime("%m/%d/%Y"),  
             txn.account.name,
-            txn.description,
-            txn.transaction_date.strftime("%b"),        
-            f"Q{((txn.transaction_date.month - 1) // 3) + 1}",  
-            txn.transaction_date.year,                 
-            txn.entry_type,
+            txn.category.name,
+            txn.category.category_type,
+            txn.category.normal_side,
             txn.merchant.name if txn.merchant else "",
+            f"{txn.amount:.2f}" if txn.entry_type == txn.category.normal_side else f"{-txn.amount:.2f}",
+            f"{txn.transaction_date.month}/{txn.transaction_date.day}/{txn.transaction_date.year}",
+            txn.description,
         ])
     
     _log_info(
@@ -1781,14 +2273,3 @@ def transaction_export(request):
         count=queryset.count(),
     )
     return response
-
-
-@login_required
-def account_json(request):
-    """Return accounts as JSON for JavaScript."""
-    accounts = Account.objects.filter(user=request.user).values('id', 'name')
-    
-    return HttpResponse(
-        json.dumps(list(accounts)),
-        content_type='application/json'
-    )

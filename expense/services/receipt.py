@@ -1,6 +1,5 @@
 from .base import BaseService, ServiceError
 from .gemini import GeminiService
-from .ocr import OCRService
 
 
 class ReceiptService(BaseService):
@@ -15,6 +14,13 @@ class ReceiptService(BaseService):
             upload_filename=getattr(receipt, "name", None),
             size=getattr(receipt, "size", None),
         )
+
+        try:
+            from .ocr import OCRService
+        except ImportError as exc:
+            raise ServiceError(
+                "Receipt OCR is not included in the lightweight EC2 micro deployment."
+            ) from exc
 
         text = OCRService.extract_text(receipt)
         if not text:

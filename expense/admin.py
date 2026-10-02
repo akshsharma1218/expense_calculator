@@ -3,9 +3,7 @@ from django.contrib import admin
 from .models import (
     Account,
     Category,
-    LedgerEntry,
     Merchant,
-    Tag,
     Transaction,
     TransactionItem,
     Budget,
@@ -71,18 +69,6 @@ class MerchantAdmin(admin.ModelAdmin):
 
     list_filter = (
         "is_system",
-    )
-
-    search_fields = (
-        "name",
-    )
-
-
-@admin.register(Tag)
-class TagAdmin(admin.ModelAdmin):
-    list_display = (
-        "name",
-        "user",
     )
 
     search_fields = (
@@ -159,23 +145,6 @@ class TransactionItemAdmin(admin.ModelAdmin):
 
     search_fields = (
         "name",
-    )
-
-
-@admin.register(LedgerEntry)
-class LedgerEntryAdmin(admin.ModelAdmin):
-    list_display = (
-        "created_at",
-        "account",
-        "entry_type",
-        "amount",
-        "running_balance",
-        "posting_number",
-        "reversal_of",
-    )
-
-    list_filter = (
-        "entry_type",
     )
 
 

@@ -34,7 +34,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Create non-root user for security
 RUN useradd -m -u 1000 appuser && \
-    mkdir -p /app/logs /app/staticfiles && \
+    mkdir -p /app/logs /app/staticfiles /app/media && \
     chown -R appuser:appuser /app
 
 # Copy dependencies from builder
@@ -54,4 +54,5 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
     CMD python -c "import socket; socket.create_connection(('localhost', 8000), timeout=5)" || exit 1
 
 # Production startup (runtime only)
-CMD ["gunicorn", "expense_calculator.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "4", "--worker-class", "sync", "--max-requests", "1000", "--max-requests-jitter", "100", "--timeout", "300", "--graceful-timeout", "60", "--keep-alive", "5", "--access-logfile", "-", "--error-logfile", "-", "--log-level", "info"]
+# Switched to daphne (ASGI) so websocket notifications (Django Channels) work in production.
+CMD ["daphne", "-b", "0.0.0.0", "-p", "8000", "expense_calculator.asgi:application"]

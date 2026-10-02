@@ -1,0 +1,61 @@
+{% extends "expense/base.html" %}
+{% load static %}
+
+{% block title %}Split Transaction — FinFlow{% endblock %}
+{% block page_heading %}Split Transaction{% endblock %}
+
+{% block content %}
+<div class="split-page" data-current-user="{{ request.user.pk }}">
+    <div class="split-page-heading">
+        <div>
+            <span class="quick-entry-kicker">TRANSACTION SHARING</span>
+            <h1 class="page-title">Split transaction</h1>
+        </div>
+        <a href="{% url 'transaction-list' %}" class="btn btn-outline-secondary"><i class="bi bi-arrow-left" aria-hidden="true"></i> Transactions</a>
+    </div>
+
+    <section class="split-transaction-summary" aria-label="Transaction details">
+        <div><span>Description</span><strong>{{ transaction.description|default:"Transaction" }}</strong></div>
+        <div><span>Date</span><strong>{{ transaction.transaction_date|date:"M j, Y" }}</strong></div>
+        <div><span>Paid from</span><strong>{{ transaction.account.name }}</strong></div>
+        <div><span>Total</span><strong>₹{{ transaction.amount|floatformat:2 }}</strong></div>
+    </section>
+
+    {% if form.non_field_errors %}<div class="alert alert-danger">{{ form.non_field_errors }}</div>{% endif %}
+    <form method="post" class="split-form" data-transaction-amount="{{ transaction.amount }}">
+        {% csrf_token %}
+        <div class="split-form-topline">
+            <div class="split-form-field">
+                <label for="{{ form.group.id_for_label }}">Group</label>
+                {{ form.group }}
+                {% if form.group.errors %}<div class="invalid-feedback d-block">{{ form.group.errors|striptags }}</div>{% endif %}
+            </div>
+            <div class="split-form-field">
+                <label for="{{ form.paid_by.id_for_label }}">Paid by</label>
+                {{ form.paid_by }}
+                {% if form.paid_by.errors %}<div class="invalid-feedback d-block">{{ form.paid_by.errors|striptags }}</div>{% endif %}
+            </div>
+            <div class="split-form-field">
+                <label for="{{ form.split_mode.id_for_label }}">Split method</label>
+                {{ form.split_mode }}
+                {% if form.split_mode.errors %}<div class="invalid-feedback d-block">{{ form.split_mode.errors|striptags }}</div>{% endif %}
+            </div>
+        </div>
+
+        <div class="split-allocation-heading">
+            <div><h2>Group shares</h2><p id="splitSummary" role="status" aria-live="polite">Choose a group to see its members.</p></div>
+            <span class="split-total">Total <strong>₹{{ transaction.amount|floatformat:2 }}</strong></span>
+        </div>
+        <div id="splitMembers" class="split-allocation-list"></div>
+        <div class="split-form-actions">
+            <a href="{% url 'transaction-list' %}" class="btn btn-outline-secondary">Cancel</a>
+            <button type="submit" class="btn btn-primary"><i class="bi bi-check2" aria-hidden="true"></i> Save split</button>
+        </div>
+    </form>
+</div>
+{{ group_member_data|json_script:"split-group-members-data" }}
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'js/transaction_split.js' %}"></script>
+{% endblock %}

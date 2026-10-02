@@ -1,0 +1,3 @@
+# Local EC2 environment files and credentials
+*.env
+.env.docker

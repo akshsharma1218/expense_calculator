@@ -38,6 +38,21 @@
                     <p class="text-muted">No members added yet.</p>
                     {% endfor %}
                 </div>
+
+                <form method="post" class="mt-4" novalidate>
+                    {% csrf_token %}
+                    <label for="{{ invite_form.email.id_for_label }}" class="form-label">Invite a member</label>
+                    <div class="d-flex flex-wrap gap-2">
+                        {{ invite_form.email }}
+                        <button type="submit" class="btn btn-primary">
+                            <i class="bi bi-person-plus" aria-hidden="true"></i> Send invite
+                        </button>
+                    </div>
+                    {% for error in invite_form.email.errors %}
+                    <div class="text-danger small mt-1">{{ error }}</div>
+                    {% endfor %}
+                    <small class="text-muted d-block mt-2">They must accept the invitation before joining.</small>
+                </form>
             </div>
         </div>
     </div>

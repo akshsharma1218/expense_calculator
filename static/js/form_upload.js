@@ -399,29 +399,3 @@ async function downloadTransactionsByDate() {
     }
 }
 
-async function downloadTransactionsByAccount() {
-    try {
-        const response = await fetch('/accounts/json/');
-        const accounts = await response.json();
-        
-        if (!accounts || accounts.length === 0) {
-            alert('No accounts found');
-            return;
-        }
-
-        const accountList = accounts.map((acc, idx) => `${idx + 1}. ${acc.name}`).join('\n');
-        const accountIdx = prompt(`Select account to export:\n\n${accountList}\n\nEnter number:`, '1');
-        
-        if (!accountIdx || isNaN(accountIdx)) return;
-
-        const selectedAccount = accounts[parseInt(accountIdx) - 1];
-        if (!selectedAccount) {
-            alert('Invalid selection');
-            return;
-        }
-
-        window.location.href = `/transactions/export/?account=${selectedAccount.id}`;
-    } catch (error) {
-        alert('Error downloading transactions: ' + error.message);
-    }
-}

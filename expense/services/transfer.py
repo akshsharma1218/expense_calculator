@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from django.db import transaction as db_transaction
 
 from ..models import (
@@ -65,6 +67,17 @@ class TransferService(BaseService):
             )
 
     @staticmethod
+    def _get_transfer_type(from_account, to_account):
+        if to_account.account_type == Account.AccountType.CREDIT_CARD:
+            return Transfer.Type.BILL_PAYMENT
+        if (
+            from_account.account_type == Account.AccountType.INVESTMENT
+            or to_account.account_type == Account.AccountType.INVESTMENT
+        ):
+            return Transfer.Type.INVESTMENT
+        return Transfer.Type.TRANSFER
+
+    @staticmethod
     @db_transaction.atomic
     def create_transfer(
         *,
@@ -108,15 +121,9 @@ class TransferService(BaseService):
             )
         )
         
-        transfer_type = Transfer.Type.TRANSFER
-        if to_account.account_type == Account.AccountType.CREDIT_CARD:
-            transfer_type = Transfer.Type.BILL_PAYMENT
-        elif to_account.account_type == Account.AccountType.INVESTMENT or from_account.account_type == Account.AccountType.INVESTMENT:
-            transfer_type = Transfer.Type.INVESTMENT
-
         return Transfer.objects.create(
             user=user,
-            transfer_type=transfer_type,
+            transfer_type=TransferService._get_transfer_type(from_account, to_account),
             debit_transaction=debit_transaction,
             credit_transaction=credit_transaction,
             notes=notes,
@@ -150,6 +157,16 @@ class TransferService(BaseService):
             TransferService._get_transfer_categories()
         )
 
+        amount = Decimal(amount)
+        items = [
+            {
+                "name": notes or "Item",
+                "quantity": Decimal("1"),
+                "unit_price": amount,
+                "total_price": amount,
+            }
+        ]
+
         TransactionService.update_transaction(
             transaction_obj=transfer.debit_transaction,
             account=from_account,
@@ -157,6 +174,7 @@ class TransferService(BaseService):
             amount=amount,
             transaction_date=transaction_date,
             description=notes,
+            items=items,
         )
 
         TransactionService.update_transaction(
@@ -166,11 +184,15 @@ class TransferService(BaseService):
             amount=amount,
             transaction_date=transaction_date,
             description=notes,
+            items=items,
         )
 
         
         transfer.notes = notes
-        transfer.transfer_type = Transfer.Type.BILL_PAYMENT if to_account.account_type == Account.AccountType.CREDIT_CARD else Transfer.Type.TRANSFER
+        transfer.transfer_type = TransferService._get_transfer_type(
+            from_account,
+            to_account,
+        )
   
         transfer.save(
             update_fields=[

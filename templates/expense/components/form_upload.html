@@ -10,7 +10,7 @@
                     <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
                 <div class="modal-body">
-                    <p class="text-muted small mb-3">Upload a CSV file to bulk create transactions.</p>
+                    <p class="text-muted small mb-3"><a href="{% url 'transaction-template' %}">Download the CSV template</a>.</p>
                     <div class="mb-3">
                         <label for="id_csv_file" class="form-label">CSV file</label>
                         {{ transactions_upload_form.csv_file }}

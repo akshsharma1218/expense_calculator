@@ -86,25 +86,6 @@ class Account(BaseModel):
     def __str__(self):
         return self.name
 
-    @property
-    def calculated_balance(self):
-        balance = self.opening_balance
-        is_credit_card = self.account_type == self.AccountType.CREDIT_CARD
-
-        for entry in self.ledger_entries.order_by("posting_number"):
-            if entry.entry_type == EntryType.CREDIT:
-                if is_credit_card:
-                    balance -= entry.amount
-                else:
-                    balance += entry.amount
-            else:
-                if is_credit_card:
-                    balance += entry.amount
-                else:
-                    balance -= entry.amount
-
-        return balance
-
 
 # ============================================================
 # Category
@@ -235,42 +216,6 @@ class Merchant(BaseModel):
 
 
 # ============================================================
-# Tag
-# ============================================================
-
-class Tag(BaseModel):
-
-    id = models.UUIDField(
-        primary_key=True,
-        default=uuid.uuid4,
-        editable=False
-    )
-
-    user = models.ForeignKey(
-        User,
-        on_delete=models.CASCADE,
-        related_name="tags"
-    )
-
-    is_system = models.BooleanField(default=False)
-
-    name = models.CharField(max_length=50)
-
-    class Meta:
-        db_table = "tag"
-
-        constraints = [
-            models.UniqueConstraint(
-                fields=["user", "name"],
-                name="uq_tag_user_name"
-            )
-        ]
-
-    def __str__(self):
-        return self.name
-
-
-# ============================================================
 # Transaction
 # ============================================================
 
@@ -329,12 +274,6 @@ class Transaction(BaseModel):
 
     is_deleted = models.BooleanField(default=False)
 
-    tags = models.ManyToManyField(
-        "Tag",
-        through="TransactionTag",
-        blank=True
-    )
-
     class Meta:
         db_table = "transaction"
 
@@ -372,6 +311,57 @@ class Transaction(BaseModel):
 
     def __str__(self):
         return f"{self.entry_type} - {self.amount}"
+
+
+class FavoriteDescription(BaseModel):
+    id = models.UUIDField(
+        primary_key=True,
+        default=uuid.uuid4,
+        editable=False,
+    )
+
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="favorite_descriptions",
+    )
+    name = models.CharField(max_length=80)
+    account = models.ForeignKey(
+        Account,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="favorite_descriptions",
+    )
+    category = models.ForeignKey(
+        Category,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="favorite_descriptions",
+    )
+    merchant = models.ForeignKey(
+        Merchant,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="favorite_descriptions",
+    )
+
+    description = models.TextField(blank=True)
+    
+    class Meta:
+        db_table = "favorite_description"
+        ordering = ["name"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "name"],
+                name="uq_favorite_description_user_name",
+            ),
+        ]
+
+    def __str__(self):
+        return self.name
 
 
 # ============================================================
@@ -427,204 +417,52 @@ class Transfer(BaseModel):
 
     class Meta:
         db_table = "transfer"
-        
+
     @property
     def amount(self):
         return self.debit_transaction.amount
 
     @property
-    def transaction_date(self):
-        return self.debit_transaction.transaction_date
-
-    @property
-    def from_account(self):
-        return self.debit_transaction.account
-
-    @property
-    def to_account(self):
-        return self.credit_transaction.account
-    
-    @property
     def debit_account(self):
         return self.debit_transaction.account
-
 
     @property
     def credit_account(self):
         return self.credit_transaction.account
 
-# ============================================================
-# Transaction Item
-# ============================================================
-
-class TransactionItem(BaseModel):
-
-    transaction = models.ForeignKey(
-        Transaction,
-        on_delete=models.CASCADE,
-        related_name="items"
-    )
-
-    name = models.CharField(
-        max_length=200
-    )
-
-    quantity = models.DecimalField(
-        max_digits=10,
-        decimal_places=2,
-        default=1
-    )
-
-    unit_price = models.DecimalField(
-        max_digits=12,
-        decimal_places=2
-    )
-
-    total_price = models.DecimalField(
-        max_digits=12,
-        decimal_places=2,
-        editable=False
-    )
-
-    def save(self, *args, **kwargs):
-
-        self.total_price = (
-            self.quantity *
-            self.unit_price
-        )
-
-        super().save(
-            *args,
-            **kwargs
-        )
-
-# ============================================================
-# Transaction Tag
-# ============================================================
-
-class TransactionTag(models.Model):
-
-    transaction = models.ForeignKey(
-        Transaction,
-        on_delete=models.CASCADE
-    )
-
-    tag = models.ForeignKey(
-        Tag,
-        on_delete=models.CASCADE
-    )
-
-    class Meta:
-        db_table = "transaction_tag"
-
-        constraints = [
-            models.UniqueConstraint(
-                fields=["transaction", "tag"],
-                name="uq_transaction_tag"
-            )
-        ]
-
-
-# ============================================================
-# Attachment
-# ============================================================
 
 class Attachment(BaseModel):
-
     id = models.UUIDField(
         primary_key=True,
         default=uuid.uuid4,
-        editable=False
+        editable=False,
     )
 
     transaction = models.ForeignKey(
         Transaction,
         on_delete=models.CASCADE,
-        related_name="attachments"
+        related_name="attachments",
     )
 
     file = models.FileField(
-        upload_to="receipts/"
+        upload_to="receipts/",
     )
 
 
-# ============================================================
-# Ledger Entry
-# ============================================================
-
-class LedgerEntry(BaseModel):
-
-    id = models.UUIDField(
-        primary_key=True,
-        default=uuid.uuid4,
-        editable=False
-    )
-
+class TransactionItem(BaseModel):
     transaction = models.ForeignKey(
         Transaction,
-        on_delete=models.PROTECT,
-        related_name="ledger_entries",
-        editable=False
+        on_delete=models.CASCADE,
+        related_name="items",
     )
+    name = models.CharField(max_length=200)
+    quantity = models.DecimalField(max_digits=10, decimal_places=2, default=1)
+    unit_price = models.DecimalField(max_digits=12, decimal_places=2)
+    total_price = models.DecimalField(max_digits=12, decimal_places=2, editable=False)
 
-    account = models.ForeignKey(
-        Account,
-        on_delete=models.PROTECT,
-        related_name="ledger_entries",
-        editable=False
-    )
-
-    entry_type = models.CharField(
-        max_length=10,
-        choices=EntryType.choices,
-        editable=False
-    )
-
-    amount = models.DecimalField(
-        max_digits=15,
-        decimal_places=2,
-        editable=False
-    )
-
-    running_balance = models.DecimalField(
-        max_digits=15,
-        decimal_places=2,
-        default=0,
-        editable=False
-    )
-    posting_number = models.PositiveIntegerField()
-    reversal_of = models.ForeignKey(
-        "self",
-        null=True,
-        blank=True,
-        on_delete=models.PROTECT,
-        related_name="reversal_entry",
-        editable=False
-    )
-
-    class Meta:
-        db_table = "ledger_entry"
-
-        indexes = [
-            models.Index(fields=["account"]),
-            models.Index(fields=["transaction"]),
-            models.Index(fields=["account", "-posting_number"]),
-        ]
-
-        constraints = [
-            models.CheckConstraint(
-                condition=models.Q(amount__gt=0),
-                name="ledger_entry_amount_positive",
-            ),
-            models.CheckConstraint(
-                condition=models.Q(entry_type__in=EntryType.values),
-                name="ledger_entry_entry_type_valid",
-            ),
-            models.UniqueConstraint(
-                fields=["account", "posting_number"],
-                name="unique_account_posting_number",
-            )
-        ]
+    def save(self, *args, **kwargs):
+        self.total_price = self.quantity * self.unit_price
+        super().save(*args, **kwargs)
 
 
 # ============================================================
@@ -738,6 +576,65 @@ class GroupMember(BaseModel):
                 name="uq_group_member"
             )
         ]
+
+
+# ============================================================
+# Group Invitation
+# ============================================================
+
+class GroupInvitation(BaseModel):
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        ACCEPTED = "accepted", "Accepted"
+        DECLINED = "declined", "Declined"
+
+    id = models.UUIDField(
+        primary_key=True,
+        default=uuid.uuid4,
+        editable=False
+    )
+
+    group = models.ForeignKey(
+        ExpenseGroup,
+        on_delete=models.CASCADE,
+        related_name="invitations"
+    )
+
+    invited_user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="group_invitations"
+    )
+
+    invited_by = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="sent_group_invitations"
+    )
+
+    status = models.CharField(
+        max_length=10,
+        choices=Status.choices,
+        default=Status.PENDING,
+    )
+
+    responded_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "group_invitation"
+
+        constraints = [
+            # Only one pending invitation per user/group at a time; user can be re-invited after responding.
+            models.UniqueConstraint(
+                fields=["group", "invited_user"],
+                condition=models.Q(status="pending"),
+                name="uq_group_invitation_pending",
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.invited_user} -> {self.group} ({self.status})"
 
 
 # ============================================================

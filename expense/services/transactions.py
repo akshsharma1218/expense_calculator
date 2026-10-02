@@ -4,7 +4,7 @@ from django.db import transaction as db_transaction
 from ..models import Account, EntryType, Transaction, TransactionItem, Category
 from .balance import BalanceService
 from .base import BaseService, ServiceError
-from .ledger import LedgerService
+from .groups import GroupService
 
 
 EDITABLE_FIELDS = frozenset({
@@ -14,7 +14,6 @@ EDITABLE_FIELDS = frozenset({
     "description",
     "transaction_date",
     "account",
-    "refund",
 })
 
 
@@ -29,8 +28,8 @@ class TransactionService(BaseService):
         )
 
     @staticmethod
-    def normalize_entry_type(entry_type, refund=False):
-        if refund:
+    def normalize_entry_type(entry_type, negative_amount=False):
+        if negative_amount:
             return EntryType.DEBIT if entry_type == EntryType.CREDIT else EntryType.CREDIT
         return entry_type
 
@@ -48,15 +47,12 @@ class TransactionService(BaseService):
         )
 
     @staticmethod
-    def _apply_and_record(transaction_obj, account):
+    def _apply_balance(transaction_obj, account):
         BalanceService.apply(
             account=account,
             entry_type=transaction_obj.entry_type,
             amount=transaction_obj.amount,
         )
-
-        account.refresh_from_db(fields=["current_balance"])
-        LedgerService.record(transaction_obj)
 
     @staticmethod
     def validate_amount(amount, items=None):
@@ -86,7 +82,6 @@ class TransactionService(BaseService):
         account,
         category,
         merchant=None,
-        tags=None,
         items=None,
     ):
 
@@ -98,11 +93,6 @@ class TransactionService(BaseService):
 
         if merchant and not merchant.is_system and merchant.created_by_id != user.id:
             raise ServiceError("Invalid merchant.")
-
-        if tags:
-            for tag in tags:
-                if tag.user_id != user.id:
-                    raise ServiceError("Invalid tag.")
 
         if items:
             for item in items:
@@ -131,10 +121,8 @@ class TransactionService(BaseService):
         transaction_date,
         merchant=None,
         description="",
-        tags=None,
         items=None,
         is_group_expense=False,
-        refund=None
     ):
         TransactionService._log_info(
             "Transaction create started",
@@ -150,15 +138,16 @@ class TransactionService(BaseService):
             account=account,
             category=category,
             merchant=merchant,
-            tags=tags,
             items=items,
         )
 
-        amount= TransactionService.validate_amount(amount, items)
+        amount = Decimal(amount)
+        negative_amount = amount < 0
+        amount = TransactionService.validate_amount(abs(amount), items)
 
         normalized_entry_type = TransactionService.normalize_entry_type(
             category.normal_side,
-            refund=refund,
+            negative_amount=negative_amount,
         )
         
         txn = Transaction.objects.create(
@@ -173,16 +162,13 @@ class TransactionService(BaseService):
             is_group_expense=is_group_expense,
         )
 
-        if tags is not None:
-            txn.tags.set(tags)
-
         if not items:
             items = TransactionService.create_default_items_from_transaction(txn)
 
         if items:
             TransactionService._set_items(txn, items)
 
-        TransactionService._apply_and_record(txn, account)
+        TransactionService._apply_balance(txn, account)
 
         TransactionService._log_info(
             "Transaction created",
@@ -198,8 +184,6 @@ class TransactionService(BaseService):
         *,
         transaction_obj,
         items=None,
-        tags=None,
-        refund=None,
         **data,
     ):
         TransactionService._log_info(
@@ -237,85 +221,47 @@ class TransactionService(BaseService):
             account=account,
             category=category,
             merchant=merchant,
-            tags=tags if tags is not None else transaction_obj.tags.all(),
             items=items,
         )
 
-        if not items:
-            items = TransactionService.create_default_items_from_transaction(transaction_obj)
-
-        if items:
+        negative_amount = (
+            Decimal(data["amount"]) < 0
+            if "amount" in data
+            else original_transaction.entry_type != original_transaction.category.normal_side
+        )
+        if items is None:
             if "amount" in data:
-                data["amount"] = TransactionService.validate_amount(data["amount"], items)
+                data["amount"] = TransactionService.validate_amount(abs(Decimal(data["amount"])))
+        elif not items:
+            raise ServiceError("At least one transaction item is required.")
+        else:
+            if "amount" in data:
+                data["amount"] = TransactionService.validate_amount(abs(Decimal(data["amount"])), items)
             else:
                 raise ServiceError("Amount is required when updating transaction items.")
 
-        original_entry = LedgerService.latest_posted_entry(transaction_obj, account=original_account)
-
-        TransactionService._log_debug(
-            "Transaction reverse phase started",
-            transaction_id=getattr(transaction_obj, "id", None),
-            account_id=getattr(original_account, "id", None),
-            original_entry_id=getattr(original_entry, "id", None),
-            original_entry_type=original_entry.entry_type,
-            original_amount=original_entry.amount,
-            account_balance_before_reverse=original_account.current_balance,
-        )
-
         BalanceService.reverse(
             account=original_account,
-            entry_type=original_entry.entry_type,
-            amount=original_entry.amount,
-        )
-
-        original_account.refresh_from_db(fields=["current_balance"])
-
-        TransactionService._log_debug(
-            "Transaction reverse balance applied",
-            transaction_id=getattr(transaction_obj, "id", None),
-            account_id=getattr(original_account, "id", None),
-            account_balance_after_reverse=original_account.current_balance,
-        )
-
-        reversal_entry = LedgerService.append_reversal(
-            transaction_obj,
-            original_entry=original_entry,
-            account=original_account,
-        )
-
-        TransactionService._log_debug(
-            "Transaction reversal ledger entry recorded",
-            transaction_id=getattr(transaction_obj, "id", None),
-            account_id=getattr(account, "id", None),
-            reversal_entry_id=getattr(reversal_entry, "id", None),
-            reversal_entry_type=reversal_entry.entry_type,
-            reversal_amount=reversal_entry.amount,
-            reversal_posting_number=reversal_entry.posting_number,
-            reversal_running_balance=reversal_entry.running_balance,
+            entry_type=original_transaction.entry_type,
+            amount=original_transaction.amount,
         )
 
         for field, value in data.items():
             setattr(transaction_obj, field, value)
 
-        print(f"Updating transaction {transaction_obj.id} with data: {data} and refund as {refund}")
-
-
         if data:
-            if refund is not None:
+            if "amount" in data or "category" in data:
                 transaction_obj.entry_type = TransactionService.normalize_entry_type(
                     category.normal_side,
-                    refund=refund,
+                    negative_amount=negative_amount,
                 )
                 data["entry_type"] = transaction_obj.entry_type
             transaction_obj.save(update_fields=list(data.keys()))
 
-        if tags is not None:
-            transaction_obj.tags.set(tags)
-
-        if items:
+        if items is not None:
             TransactionService._set_items(transaction_obj, items)
 
-        TransactionService._apply_and_record(transaction_obj, account)
+        TransactionService._apply_balance(transaction_obj, account)
 
         TransactionService._log_info(
             "Transaction updated",
@@ -338,47 +284,10 @@ class TransactionService(BaseService):
             raise ServiceError("Transaction already deleted.")
 
         account = TransactionService._lock_account(transaction_obj.account_id)
-        original_entry = LedgerService.latest_posted_entry(transaction_obj, account=account)
-
-        TransactionService._log_debug(
-            "Transaction delete reverse phase started",
-            transaction_id=getattr(transaction_obj, "id", None),
-            account_id=getattr(account, "id", None),
-            original_entry_id=getattr(original_entry, "id", None),
-            original_entry_type=original_entry.entry_type,
-            original_amount=original_entry.amount,
-            account_balance_before_reverse=account.current_balance,
-        )
-
         BalanceService.reverse(
             account=account,
-            entry_type=original_entry.entry_type,
-            amount=original_entry.amount,
-        )
-
-        account.refresh_from_db(fields=["current_balance"])
-
-        TransactionService._log_debug(
-            "Transaction delete reverse balance applied",
-            transaction_id=getattr(transaction_obj, "id", None),
-            account_id=getattr(account, "id", None),
-            account_balance_after_reverse=account.current_balance,
-        )
-
-        reversal_entry = LedgerService.append_reversal(
-            transaction_obj,
-            original_entry=original_entry,
-        )
-
-        TransactionService._log_debug(
-            "Transaction delete reversal ledger entry recorded",
-            transaction_id=getattr(transaction_obj, "id", None),
-            account_id=getattr(account, "id", None),
-            reversal_entry_id=getattr(reversal_entry, "id", None),
-            reversal_entry_type=reversal_entry.entry_type,
-            reversal_amount=reversal_entry.amount,
-            reversal_posting_number=reversal_entry.posting_number,
-            reversal_running_balance=reversal_entry.running_balance,
+            entry_type=transaction_obj.entry_type,
+            amount=transaction_obj.amount,
         )
 
         transaction_obj.is_deleted = True
