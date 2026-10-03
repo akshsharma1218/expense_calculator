@@ -36,10 +36,10 @@
                         <th width="180">Date</th>
                         <th width="180">Type</th>
                         <th width="200">From</th>
-                        <th width="180"></th>
+                        <th width="100"></th>
                         <th width="200">To</th>
                         <th class="text-end">Amount</th>
-                        <th width="200">Notes</th>
+                        <th width="280">Notes</th>
                         <th width="130"></th>
                     </tr>
 
@@ -52,7 +52,7 @@
                     <tr>
 
                         <td>
-                            {{ transfer.transaction_date|date:"d M Y" }}
+                            {{ transfer.credit_transaction.transaction_date|date:"d M Y" }}
                         </td>
 
                         <td>
@@ -74,7 +74,7 @@
                         </td>
 
                         <td>
-                            {{ transfer.from_account.name }}
+                            {{ transfer.debit_transaction.account.name }}
                         </td>
 
                         <td class="text-center">
@@ -84,7 +84,7 @@
                         </td>
 
                         <td>
-                            {{ transfer.to_account.name }}
+                            {{ transfer.credit_transaction.account.name }}
                         </td>
 
                         <td class="text-end fw-semibold">

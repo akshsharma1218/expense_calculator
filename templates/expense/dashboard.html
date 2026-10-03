@@ -5,7 +5,9 @@
 {% block page_heading %}Dashboard{% endblock %}
 
 {% block topbar_actions %}
+{% if setup_complete %}
 {% include "expense/components/data_management_dropdown.html" %}
+{% endif %}
 {% endblock %}
 
 {% block content %}
@@ -19,14 +21,66 @@
             <p class="page-subtitle">Track income, expenses, and savings with real-time insights across all your accounts.</p>
         </div>
         <div class="col-lg-4 text-lg-end">
+            {% if setup_complete %}
             <div class="quick-actions justify-content-lg-end">
                 <a href="{% url 'transaction-create' %}" class="action-chip"><i class="bi bi-plus-circle"></i> Add Expense</a>
                 <a href="{% url 'account-create' %}" class="action-chip"><i class="bi bi-bank"></i> Add Account</a>
             </div>
+            {% endif %}
         </div>
     </div>
 </div>
 
+{% if not setup_complete %}
+<section class="setup-path mb-4" aria-labelledby="setupPathTitle" data-animate>
+    <div class="setup-path-heading">
+        <div>
+            <span class="setup-path-kicker">ACCOUNT SETUP</span>
+            <h2 id="setupPathTitle">Build your FinFlow workspace</h2>
+        </div>
+        <span class="setup-path-progress">Step {{ setup_steps|length }}-step setup</span>
+    </div>
+    <ol class="setup-path-list">
+        {% for step in setup_steps %}
+        <li class="setup-path-step{% if step.complete %} is-complete{% elif step.current %} is-current{% else %} is-locked{% endif %}">
+            <div class="setup-step-marker" aria-hidden="true">
+                {% if step.complete %}<i class="bi bi-check-lg"></i>{% else %}{{ step.number }}{% endif %}
+            </div>
+            <div class="setup-step-content">
+                <div class="setup-step-state">
+                    {% if step.complete %}Complete{% elif step.current %}Next step{% else %}Locked{% endif %}
+                </div>
+                <h3>{{ step.title }}</h3>
+                <p>{{ step.description }}</p>
+                {% if step.current %}
+                    {% if step.key == "account" %}
+                    <div class="setup-step-actions">
+                        <a href="{% url 'account-create' %}" class="btn btn-primary btn-sm"><i class="bi bi-plus-lg" aria-hidden="true"></i> Add account</a>
+                        {% if user.is_staff %}<a href="{% url 'account-list' %}#account-import" class="btn btn-outline-light btn-sm"><i class="bi bi-cloud-upload" aria-hidden="true"></i> Import accounts</a>{% endif %}
+                    </div>
+                    {% elif step.key == "category" %}
+                    <a href="{% url 'category-create' %}" class="btn btn-primary btn-sm"><i class="bi bi-plus-lg" aria-hidden="true"></i> Create category</a>
+                    {% elif step.key == "budget" %}
+                    <a href="{% url 'budget-create' %}" class="btn btn-primary btn-sm"><i class="bi bi-plus-lg" aria-hidden="true"></i> Set budget</a>
+                    {% elif step.key == "transaction" %}
+                    <div class="setup-step-actions">
+                        <a href="{% url 'transaction-create' %}" class="btn btn-primary btn-sm"><i class="bi bi-plus-lg" aria-hidden="true"></i> Add transaction</a>
+                        {% if user.is_staff %}<button type="button" class="btn btn-outline-light btn-sm" data-bs-toggle="modal" data-bs-target="#TransactionUploadModal"><i class="bi bi-cloud-upload" aria-hidden="true"></i> Import transactions</button>{% endif %}
+                    </div>
+                    {% endif %}
+                {% else %}
+                <button type="button" class="btn btn-outline-secondary btn-sm setup-step-disabled" disabled aria-disabled="true">
+                    {% if step.complete %}<i class="bi bi-check-lg" aria-hidden="true"></i> Complete{% else %}<i class="bi bi-lock" aria-hidden="true"></i> Locked{% endif %}
+                </button>
+                {% endif %}
+            </div>
+        </li>
+        {% endfor %}
+    </ol>
+</section>
+{% endif %}
+
+{% if setup_complete %}
 <div class="mb-4" id="quick-entry" data-animate>
         <section class="glass-card quick-entry-card" aria-labelledby="quickEntryTitle">
             <div class="glass-card-header">
@@ -65,6 +119,7 @@
             </div>
         </section>
 </div>
+{% endif %}
 
 <!-- KPIs -->
 <div class="kpi-grid mb-4">
@@ -120,13 +175,13 @@
         <div class="glass-card h-100">
             <div class="glass-card-header">
                 <div>
-                    <strong>Spending by Category</strong>
+                    <strong>Expenses by Category</strong>
                     <div class="text-muted small mt-1">{{ current_month_label }}</div>
                 </div>
                 <i class="bi bi-pie-chart text-muted"></i>
             </div>
             <div class="glass-card-body">
-                <div id="categoryDonutChart" class="chart-container"></div>
+                <div id="categoryBreakdownChart" class="chart-container"></div>
             </div>
         </div>
     </div>
@@ -203,12 +258,19 @@
 <div class="row g-4 mb-4">
     <div class="col-xl-12" data-animate>
         <div class="glass-card h-100">
-            <div class="glass-card-header"><strong>Timeline</strong></div>
+            <div class="glass-card-header">
+                <div>
+                    <strong>Monthly Expenses by Category</strong>
+                    <div class="text-muted small mt-1">6-month timeline</div>
+                </div>
+                <i class="bi bi-graph-up-arrow text-muted" aria-hidden="true"></i>
+            </div>
             <div class="glass-card-body"><div id="timelineBreakdownChart" class="chart-container-sm"></div></div>
         </div>
     </div>
 </div>
 
+{% if setup_complete %}
 <!-- Quick Actions -->
 <div class="glass-card" data-animate>
     <div class="glass-card-body">
@@ -223,6 +285,7 @@
         </div>
     </div>
 </div>
+{% endif %}
 
 {% endblock %}
 
@@ -242,19 +305,26 @@ document.addEventListener('DOMContentLoaded', function () {
     const trend = {{ chart_monthly_trend|safe }};
     const categories = {{ chart_category_breakdown|safe }};
     const accounts = {{ chart_account_distribution|safe }};
-    const timeline = {{ chart_timeline_breakdown|safe }} || [];
+    const timeline = {{ chart_timeline_breakdown|safe }} || { categories: [], points: [] };
 
-    FinFlowCharts.renderMonthlyTrend('monthlyTrendChart', trend);
-    if (categories.length) FinFlowCharts.renderDonut('categoryDonutChart', categories);
-    else document.getElementById('categoryDonutChart').innerHTML = '<div class="empty-state"><i class="bi bi-pie-chart"></i><p class="text-muted">No expenses this month</p></div>';
-    if (accounts.length) FinFlowCharts.renderAccountBar('accountBarChart', accounts);
+    const transactionListUrl = "{% url 'transaction-list' %}";
+    FinFlowCharts.renderMonthlyTrend('monthlyTrendChart', trend, { transactionListUrl });
+    if (categories.length) FinFlowCharts.renderBarHor('categoryBreakdownChart', categories, {
+        transactionListUrl,
+        month: "{{ current_month_value }}",
+        height: 300,
+    }, 'expense');
+    else document.getElementById('categoryBreakdownChart').innerHTML = '<div class="empty-state"><i class="bi bi-bar-chart-steps"></i><p class="text-muted">No expenses this month</p></div>';
+    if (accounts.length) FinFlowCharts.renderAccountBar('accountBarChart', accounts, { transactionListUrl });
     else document.getElementById('accountBarChart').innerHTML = '<div class="empty-state"><i class="bi bi-bank"></i><p class="text-muted">No accounts yet</p></div>';
-    if (timeline && timeline.length) FinFlowCharts.renderMonthlyTrend('timelineBreakdownChart', timeline.map(i => ({label:i.label, income:i.income || 0, expense:i.expense || 0, investment:0})));
-    else if (document.getElementById('timelineBreakdownChart')) document.getElementById('timelineBreakdownChart').innerHTML = '<div class="empty-state"><i class="bi bi-calendar3"></i><p class="text-muted">No timeline data</p></div>';
+    if (timeline.categories.length) FinFlowCharts.renderCategoryTimeline('timelineBreakdownChart', timeline, { transactionListUrl });
+    else if (document.getElementById('timelineBreakdownChart')) document.getElementById('timelineBreakdownChart').innerHTML = '<div class="empty-state"><i class="bi bi-calendar3"></i><p class="text-muted">No categorized expenses in the past six months</p></div>';
 });
 </script>
 {% endblock %}
 
 {% block modals %}
+{% if user.is_staff %}
 {% include "expense/components/form_upload.html" %}
+{% endif %}
 {% endblock %}

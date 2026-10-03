@@ -9,6 +9,12 @@
   }
 }
 
+@media (max-width: 991px) {
+  .setup-path-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 /* ============================================================
    TABLETS & SMALLER DEVICES (≤1200px)
    ============================================================ */
@@ -491,6 +497,32 @@
    ============================================================ */
 
 @media (max-width: 576px) {
+  .setup-path-heading {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .setup-path-list {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
+  }
+
+  .setup-path-step {
+    display: grid;
+    grid-template-columns: 36px minmax(0, 1fr);
+    column-gap: 10px;
+    padding: 12px 0 0;
+  }
+
+  .setup-step-marker {
+    grid-row: span 4;
+    margin-bottom: 0;
+  }
+
+  .setup-path-step p {
+    min-height: 0;
+  }
   /* Root Variables */
   :root {
     --topbar-h: 56px;

@@ -1,0 +1,18 @@
+FINFLOW · ACCOUNT SETUP · STEP 1 OF 2
+Verify your email
+
+Hi {{ first_name|default:"there" }},
+
+Confirm this address to continue setting up your FinFlow account:
+
+{{ verification_url }}
+
+The link expires in 24 hours.
+
+WHAT HAPPENS NEXT
+1. Verify your email address using the link above.
+2. An administrator reviews and approves your account.
+
+You can sign in once both steps are complete.
+
+If you did not create a FinFlow account, you can ignore this email. No changes will be made.

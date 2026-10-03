@@ -97,7 +97,7 @@ class FavoriteDescriptionForm(forms.ModelForm):
             "account": forms.Select(attrs={"class": "form-select"}),
             "category": forms.Select(attrs={"class": "form-select"}),
             "merchant": forms.Select(attrs={"class": "form-select"}),
-            "description": forms.Textarea(attrs={"class": "form-control", "rows": 3}),
+            "description": forms.Textarea(attrs={"class": "form-control", "rows": 1}),
         }
 
     def __init__(self, *args, user=None, **kwargs):
@@ -679,68 +679,56 @@ class MerchantForm(forms.ModelForm):
 
 class BudgetForm(forms.ModelForm):
 
+    description = forms.CharField(
+        max_length=200,
+        widget=forms.TextInput(
+            attrs={
+                "class": "form-control",
+                "maxlength": 200,
+                "placeholder": "e.g. Monthly household spending",
+            }
+        ),
+    )
+
+    amount = forms.DecimalField(
+        min_value=Decimal("0.01"),
+        max_digits=15,
+        decimal_places=2,
+        widget=forms.NumberInput(
+            attrs={
+                "class": "form-control",
+                "min": "0.01",
+                "step": "0.01",
+                "inputmode": "decimal",
+            }
+        ),
+    )
+
     class Meta:
         model = Budget
-
-        fields = (
-            "category",
-            "month",
-            "year",
-            "amount",
-        )
-
+        fields = ("amount", "description", "category")
         widgets = {
-            "category": forms.Select(
-                attrs={"class": "form-select"}
-            ),
-            "month": forms.NumberInput(
-                attrs={
-                    "class": "form-control",
-                    "max": 12,
-                }
-            ),
-            "year": forms.NumberInput(
-                attrs={
-                    "class": "form-control",
-                }
-            ),
-            "amount": forms.NumberInput(
-                attrs={
-                    "class": "form-control",
-                }
-            ),
+            "category": forms.Select(attrs={"class": "form-select"}),
         }
 
     def __init__(self, *args, user=None, **kwargs):
         super().__init__(*args, **kwargs)
 
         self.user = user
-
-        if user:
-            self.fields["category"].queryset = (
-                (
-                    Category.objects.filter(
-                        is_system=True,
-                        normal_side=EntryType.DEBIT,
-                    )
-                    | Category.objects.filter(
-                        created_by=user,
-                        normal_side=EntryType.DEBIT,
-                    )
-                )
-                .order_by("name")
+        if self.instance.pk and not self.initial.get("description"):
+            self.initial["description"] = (
+                self.instance.description
+                or getattr(self.instance.category, "name", "")
             )
-        self.fields["category"].empty_label = None 
+        self.fields["category"].queryset = Category.objects.filter(
+            category_type=Category.CategoryType.EXPENSE,
+            created_by = self.user).order_by("name")
 
-    def clean_month(self):
-        month = self.cleaned_data["month"]
-
-        if month < 1 or month > 12:
-            raise ValidationError(
-                "Month must be between 1 and 12."
-            )
-
-        return month
+    def clean_description(self):
+        description = self.cleaned_data["description"].strip()
+        if not description:
+            raise ValidationError("Enter a description for this budget.")
+        return description
 
     def clean_amount(self):
         amount = self.cleaned_data["amount"]

@@ -18,6 +18,7 @@ from django.contrib import admin
 from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
+from users.views import CustomPasswordResetView, login_view
 
 urlpatterns = [
     path(
@@ -28,6 +29,12 @@ urlpatterns = [
     path(
         "auth/",
         include("users.urls")
+    ),
+    path("accounts/login/", login_view, name="accounts-login"),
+    path(
+        "accounts/password_reset/",
+        CustomPasswordResetView.as_view(),
+        name="legacy-password-reset",
     ),
     path(
         "accounts/",

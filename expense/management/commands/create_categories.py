@@ -12,13 +12,13 @@ class Command(BaseCommand):
             {
                 "name": "Transfer In",
                 "category_type": Category.CategoryType.TRANSFER,
-                "normal_side": EntryType.DEBIT,
+                "normal_side": EntryType.CREDIT,
                 "is_system": True,
             },
             {
                 "name": "Transfer Out",
                 "category_type": Category.CategoryType.TRANSFER,
-                "normal_side": EntryType.CREDIT,
+                "normal_side": EntryType.DEBIT,
                 "is_system": True,
             },
         ]

@@ -79,8 +79,9 @@
 document.addEventListener('DOMContentLoaded', function () {
     const data = {{ chart_data|safe }};
     const investmentData = {{ investment_data|safe }};
-    FinFlowCharts.renderDonut('categoryDonut', data, { totalLabel: 'Total' });
-    FinFlowCharts.renderBar('investmentBar', investmentData, { height: 300 });
+    const transactionListUrl = "{% url 'transaction-list' %}";
+    FinFlowCharts.renderDonut('categoryDonut', data, { transactionListUrl, totalLabel: 'Total' });
+    FinFlowCharts.renderBar('investmentBar', investmentData, { transactionListUrl, height: 300 });
     FinFlowTables.initReportTable('categoryTable', data, 'expense');
 });
 </script>

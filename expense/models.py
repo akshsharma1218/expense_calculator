@@ -489,8 +489,12 @@ class Budget(BaseModel):
 
     category = models.ForeignKey(
         Category,
-        on_delete=models.CASCADE
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
     )
+
+    description = models.CharField(max_length=200, blank=True, default="")
 
     month = models.PositiveSmallIntegerField()
     year = models.PositiveSmallIntegerField()
@@ -505,8 +509,14 @@ class Budget(BaseModel):
 
         constraints = [
             models.UniqueConstraint(
+                fields=["user", "month", "year"],
+                condition=models.Q(category__isnull=True),
+                name="uq_budget_overall_period",
+            ),
+            models.UniqueConstraint(
                 fields=["user", "category", "month", "year"],
-                name="uq_budget_period"
+                condition=models.Q(category__isnull=False),
+                name="uq_budget_category_period",
             )
         ]
 

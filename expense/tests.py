@@ -11,7 +11,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.urls import reverse
 from django.utils import timezone
 
-from .forms import FavoriteDescriptionForm, QuickTransactionForm, TransactionForm
+from .forms import BudgetForm, FavoriteDescriptionForm, QuickTransactionForm, TransactionForm
 from .models import Account, Budget, Category, EntryType, ExpenseGroup, FavoriteDescription, GroupBalance, GroupExpense, GroupExpenseSplit, GroupInvitation, GroupMember, Merchant, Settlement, SettlementAllocation, Transaction, Transfer, UserNotification
 from .services import BudgetService, DashboardService, GroupInvitationService, GroupService, ServiceError, SettlementService, TransactionService, TransferService, BulkTransactionUploadService
 
@@ -48,6 +48,65 @@ class DashboardQuickEntryTests(TestCase):
             category=self.category,
             merchant=self.merchant,
         )
+
+    def test_non_staff_dashboard_shows_transaction_creation_without_import_tools(self):
+        response = self.client.get(reverse("dashboard"))
+
+        self.assertContains(response, "Add Transaction")
+        self.assertNotContains(response, "Import / Export")
+        self.assertNotContains(response, "TransactionUploadModal")
+        self.assertNotContains(response, "DownloadTransactionsModal")
+
+    def test_dashboard_timeline_groups_debit_expenses_by_category(self):
+        today = date.today()
+        second_category = Category.objects.create(
+            name="Transport",
+            category_type=Category.CategoryType.EXPENSE,
+            normal_side=EntryType.DEBIT,
+            created_by=self.user,
+        )
+        TransactionService.create_transaction(
+            user=self.user,
+            account=self.account,
+            category=self.category,
+            amount=Decimal("12.00"),
+            transaction_date=today,
+            description="Lunch",
+        )
+        TransactionService.create_transaction(
+            user=self.user,
+            account=self.account,
+            category=second_category,
+            amount=Decimal("8.00"),
+            transaction_date=today,
+            description="Bus",
+        )
+        transfer_category = Category.objects.create(
+            name="Transfer Out",
+            category_type=Category.CategoryType.TRANSFER,
+            normal_side=EntryType.DEBIT,
+            is_system=True,
+        )
+        Transaction.objects.create(
+            user=self.user,
+            account=self.account,
+            category=transfer_category,
+            amount=Decimal("90.00"),
+            entry_type=EntryType.DEBIT,
+            transaction_date=today,
+            description="Transfer",
+        )
+
+        timeline = DashboardService.timeline_breakdown(user=self.user, months=6)
+
+        self.assertEqual(
+            {category["name"] for category in timeline["categories"]},
+            {"Food", "Transport"},
+        )
+        current_month = timeline["points"][-1]
+        category_ids = {category["name"]: category["id"] for category in timeline["categories"]}
+        self.assertEqual(current_month["values"][category_ids["Food"]], 12.0)
+        self.assertEqual(current_month["values"][category_ids["Transport"]], 8.0)
 
     def test_quick_add_uses_favorite_preset_resources(self):
         response = self.client.post(
@@ -93,6 +152,7 @@ class DashboardQuickEntryTests(TestCase):
         self.assertEqual(transaction.amount, Decimal("12.50"))
         self.assertEqual(transaction.entry_type, EntryType.CREDIT)
         self.assertNotIn("refund", TransactionForm(user=self.user).fields)
+
 
     def test_transaction_create_accepts_negative_amount(self):
         response = self.client.post(
@@ -212,6 +272,8 @@ class DashboardQuickEntryTests(TestCase):
         self.assertTrue(FavoriteDescription.objects.filter(pk=favorite.pk).exists())
 
     def test_account_csv_import_and_templates(self):
+        self.user.is_staff = True
+        self.user.save(update_fields=["is_staff"])
         upload = SimpleUploadedFile(
             "accounts.csv",
             b"name,account_type,opening_balance\nSavings,bank,250.00\n",
@@ -231,6 +293,8 @@ class DashboardQuickEntryTests(TestCase):
         self.assertContains(transaction_template, "merchant,amount,transaction_date,description")
 
     def test_account_csv_import_is_all_or_nothing_for_duplicates(self):
+        self.user.is_staff = True
+        self.user.save(update_fields=["is_staff"])
         upload = SimpleUploadedFile(
             "accounts.csv",
             b"name,account_type,opening_balance\nSavings,bank,250.00\nEveryday,cash,5.00\n",
@@ -272,6 +336,71 @@ class DashboardQuickEntryTests(TestCase):
         )
 
         self.assertRedirects(response, reverse("account-list"))
+
+
+class DashboardSetupPathTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            email="setup-path@example.com",
+            username="setup-path",
+            password="strong-pass",
+        )
+        self.client.force_login(self.user)
+
+    def current_step(self, response):
+        return next(
+            step["key"]
+            for step in response.context["setup_steps"]
+            if step["current"]
+        )
+
+    def test_dashboard_setup_path_advances_through_required_records(self):
+        response = self.client.get(reverse("dashboard"))
+        self.assertEqual(self.current_step(response), "account")
+        self.assertContains(response, 'href="/accounts/create/"')
+        self.assertNotContains(response, 'href="/transactions/create/"')
+        self.assertNotContains(response, 'id="quick-entry"')
+
+        account = Account.objects.create(
+            user=self.user,
+            name="Setup wallet",
+            account_type=Account.AccountType.WALLET,
+        )
+        response = self.client.get(reverse("dashboard"))
+        self.assertEqual(self.current_step(response), "category")
+
+        category = Category.objects.create(
+            name="Setup expenses",
+            category_type=Category.CategoryType.EXPENSE,
+            normal_side=EntryType.DEBIT,
+            created_by=self.user,
+        )
+        response = self.client.get(reverse("dashboard"))
+        self.assertEqual(self.current_step(response), "budget")
+
+        today = timezone.localdate()
+        Budget.objects.create(
+            user=self.user,
+            category=None,
+            description="Monthly setup",
+            month=today.month,
+            year=today.year,
+            amount=Decimal("300.00"),
+        )
+        response = self.client.get(reverse("dashboard"))
+        self.assertEqual(self.current_step(response), "transaction")
+
+        TransactionService.create_transaction(
+            user=self.user,
+            account=account,
+            category=category,
+            amount=Decimal("10.00"),
+            transaction_date=today,
+            description="First purchase",
+        )
+        response = self.client.get(reverse("dashboard"))
+        self.assertTrue(response.context["setup_complete"])
+        self.assertNotContains(response, "setupPathTitle")
 
 
 class TransactionAccountGateTests(TestCase):
@@ -386,6 +515,68 @@ class BudgetServiceTests(TestCase):
         self.assertEqual(status["percentage_used"], 35.5)
         self.assertFalse(status["is_over_budget"])
 
+    def test_overall_budget_counts_non_transfer_debits(self):
+        today = timezone.localdate()
+        budget = Budget.objects.create(
+            user=self.user,
+            category=None,
+            description="Monthly household",
+            month=today.month,
+            year=today.year,
+            amount=Decimal("100.00"),
+        )
+        TransactionService.create_transaction(
+            user=self.user,
+            account=self.account,
+            category=self.category,
+            amount=Decimal("25.00"),
+            transaction_date=today,
+            description="Groceries",
+        )
+        transfer_category = Category.objects.get(name="Transfer Out")
+        Transaction.objects.create(
+            user=self.user,
+            account=self.account,
+            category=transfer_category,
+            amount=Decimal("10.00"),
+            entry_type=EntryType.DEBIT,
+            transaction_date=today,
+            description="Move money",
+        )
+
+        status = BudgetService.get_budget_status(budget)
+
+        self.assertEqual(status["spent"], Decimal("25.00"))
+        self.assertEqual(status["remaining"], Decimal("75.00"))
+
+    def test_budget_form_only_exposes_amount_and_description(self):
+        form = BudgetForm(user=self.user)
+
+        self.assertEqual(set(form.fields), {"amount", "description"})
+
+    def test_budget_create_uses_current_period_and_rejects_duplicate(self):
+        self.client.force_login(self.user)
+        today = timezone.localdate()
+
+        response = self.client.post(
+            reverse("budget-create"),
+            {"amount": "150.00", "description": "Household spending"},
+        )
+
+        self.assertRedirects(response, reverse("budget-list"))
+        budget = Budget.objects.get(user=self.user, category__isnull=True)
+        self.assertEqual((budget.month, budget.year), (today.month, today.year))
+        self.assertEqual(budget.description, "Household spending")
+
+        response = self.client.post(
+            reverse("budget-create"),
+            {"amount": "175.00", "description": "Second overall budget"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(Budget.objects.filter(user=self.user, category__isnull=True).count(), 1)
+        self.assertContains(response, "An overall budget already exists for this month.")
+
     def test_transfer_creates_two_transactions_in_one_group(self):
         transfer_account = Account.objects.create(
             user=self.user,
@@ -474,6 +665,56 @@ class TransferUpdateTests(TestCase):
         self.assertContains(response, "Edit Transfer")
         self.assertContains(response, "Original transfer")
         self.assertContains(response, 'value="2026-06-15"')
+
+    def test_transfer_transactions_can_only_be_edited_from_transfer_page(self):
+        self.client.force_login(self.user)
+
+        for linked_transaction in (
+            self.transfer.debit_transaction,
+            self.transfer.credit_transaction,
+        ):
+            with self.subTest(transaction=linked_transaction.pk):
+                for method in (self.client.get, self.client.post):
+                    response = method(
+                        reverse("transaction-update", kwargs={"pk": linked_transaction.pk})
+                    )
+
+                    self.assertRedirects(
+                        response,
+                        reverse("transfer-update", kwargs={"pk": self.transfer.pk}),
+                    )
+
+    def test_transfer_transactions_cannot_be_changed_individually_by_service(self):
+        debit_transaction = self.transfer.debit_transaction
+
+        with self.assertRaisesMessage(ServiceError, "only be updated from the transfer page"):
+            TransactionService.update_transaction(
+                transaction_obj=debit_transaction,
+                description="One-sided edit",
+            )
+        with self.assertRaisesMessage(ServiceError, "only be deleted from the transfer page"):
+            TransactionService.delete_transaction(debit_transaction)
+
+        debit_transaction.refresh_from_db()
+        self.assertEqual(debit_transaction.description, "Original transfer")
+        self.assertFalse(debit_transaction.is_deleted)
+
+    def test_transfer_service_rejects_non_positive_or_non_finite_amount(self):
+        for amount in (Decimal("0.00"), Decimal("NaN")):
+            with self.subTest(amount=amount):
+                with self.assertRaisesMessage(ServiceError, "valid positive number"):
+                    TransferService.update_transfer(
+                        transfer=self.transfer,
+                        from_account=self.source,
+                        to_account=self.destination,
+                        amount=amount,
+                        transaction_date="2026-06-15",
+                    )
+
+        self.source.refresh_from_db()
+        self.destination.refresh_from_db()
+        self.assertEqual(self.source.current_balance, Decimal("90.00"))
+        self.assertEqual(self.destination.current_balance, Decimal("30.00"))
 
     def test_update_changes_accounts_and_keeps_investment_type(self):
         self.client.force_login(self.user)
@@ -577,6 +818,21 @@ class TransactionUpdateTests(TestCase):
                 items=[],
             )
 
+    def test_update_rejects_zero_and_non_finite_amounts(self):
+        for amount, message in (
+            (Decimal("0.00"), "greater than zero"),
+            (Decimal("NaN"), "finite number"),
+        ):
+            with self.subTest(amount=amount):
+                with self.assertRaisesMessage(ServiceError, message):
+                    TransactionService.update_transaction(
+                        transaction_obj=self.transaction,
+                        amount=amount,
+                    )
+
+        self.account.refresh_from_db()
+        self.assertEqual(self.account.current_balance, Decimal("400.00"))
+
     def test_delete_transaction_reverses_account_balance(self):
         TransactionService.delete_transaction(self.transaction)
 
@@ -610,6 +866,36 @@ class TransactionUpdateTests(TestCase):
         self.assertContains(response, "Edit Transaction")
         self.assertNotContains(response, "Item breakdown")
         self.assertNotContains(response, "Milk")
+
+    def test_transaction_list_applies_chart_drill_through_filters(self):
+        self.client.force_login(self.user)
+        other_category = Category.objects.create(
+            name="Transport",
+            category_type=Category.CategoryType.EXPENSE,
+            normal_side=EntryType.DEBIT,
+            created_by=self.user,
+        )
+        TransactionService.create_transaction(
+            user=self.user,
+            account=self.account,
+            category=other_category,
+            amount=Decimal("20.00"),
+            transaction_date="2026-06-10",
+            description="Bus fare",
+        )
+
+        response = self.client.get(
+            reverse("transaction-list"),
+            {
+                "month": "2026-06",
+                "kind": "expense",
+                "category_id": str(self.category.pk),
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        rows = json.loads(response.context["transactions_json"])
+        self.assertEqual([row["id"] for row in rows], [str(self.transaction.pk)])
 
     def test_transaction_update_without_item_form_preserves_existing_items(self):
         self.client.force_login(self.user)
@@ -677,6 +963,24 @@ class GroupSplitSettlementTests(TestCase):
             expense__transaction=transaction,
             user=self.debtor,
         )
+
+    def test_group_split_transaction_rejects_balance_affecting_edits(self):
+        split = self.create_due_split()
+        transaction = split.expense.transaction
+
+        with self.assertRaisesMessage(ServiceError, "Update the group split"):
+            TransactionService.update_transaction(
+                transaction_obj=transaction,
+                amount=Decimal("130.00"),
+            )
+
+        TransactionService.update_transaction(
+            transaction_obj=transaction,
+            description="Updated lunch note",
+        )
+        transaction.refresh_from_db()
+        self.assertEqual(transaction.amount, Decimal("120.00"))
+        self.assertEqual(transaction.description, "Updated lunch note")
 
     def test_payer_settles_full_share_and_receiver_records_credit_later(self):
         split = self.create_due_split()
@@ -1265,6 +1569,21 @@ class BulkTransactionUploadTests(TestCase):
             current_balance=Decimal("500.00"),
         )
 
+    def test_import_and_export_routes_are_forbidden_to_non_staff(self):
+        self.client.force_login(self.user)
+
+        for route in (
+            "account-template",
+            "transaction-template",
+            "transaction-export",
+        ):
+            with self.subTest(route=route):
+                self.assertEqual(self.client.get(reverse(route)).status_code, 403)
+
+        self.assertEqual(self.client.post(reverse("account-upload")).status_code, 403)
+        self.assertEqual(self.client.post(reverse("transactions-upload")).status_code, 403)
+        self.assertEqual(self.client.post(reverse("receipt-upload")).status_code, 403)
+
     def test_upload_rolls_back_all_rows_when_one_row_fails(self):
         csv_content = (
             "account,category,merchant,amount,transaction_date,description\n"
@@ -1323,7 +1642,64 @@ class BulkTransactionUploadTests(TestCase):
         self.assertEqual(imported_salary.category.category_type, Category.CategoryType.INCOME)
         self.assertEqual(imported_salary.entry_type, EntryType.DEBIT)
 
+    def test_upload_pairs_transfer_rows_by_date_description_and_amount(self):
+        destination = Account.objects.create(
+            user=self.user,
+            name="Savings",
+            account_type=Account.AccountType.BANK,
+            opening_balance=Decimal("0.00"),
+            current_balance=Decimal("0.00"),
+        )
+        csv_content = (
+            "account,category,category_type,category_normal_side,merchant,amount,transaction_date,description\n"
+            "Wallet,Transfer Out,transfer,debit,,42.50,7/25/2026,Move to savings\n"
+            "Wallet,Transfer Out,transfer,debit,,42.50,7/25/2026,Move to savings\n"
+            "Savings,Transfer In,transfer,credit,,42.50,7/25/2026,move to savings\n"
+            "Savings,Transfer In,transfer,credit,,42.50,7/25/2026,move to savings\n"
+        ).encode("utf-8")
+
+        result = BulkTransactionUploadService().upload(
+            self.user,
+            SimpleUploadedFile("transfers.csv", csv_content, content_type="text/csv"),
+        )
+
+        transfers = list(Transfer.objects.filter(user=self.user).select_related(
+            "debit_transaction__account",
+            "credit_transaction__account",
+        ))
+        self.assertEqual(result["created"], 4)
+        self.assertEqual(result["transfers_created"], 2)
+        self.assertEqual(len(transfers), 2)
+        for transfer in transfers:
+            self.assertEqual(transfer.debit_transaction.account, self.account)
+            self.assertEqual(transfer.credit_transaction.account, destination)
+            self.assertEqual(transfer.amount, Decimal("42.50"))
+            self.assertEqual(transfer.notes.casefold(), "move to savings")
+        self.account.refresh_from_db()
+        destination.refresh_from_db()
+        self.assertEqual(self.account.current_balance, Decimal("415.00"))
+        self.assertEqual(destination.current_balance, Decimal("85.00"))
+
+    def test_unmatched_transfer_row_rolls_back_import(self):
+        csv_content = (
+            "account,category,category_type,category_normal_side,merchant,amount,transaction_date,description\n"
+            "Wallet,Transfer Out,transfer,debit,,42.50,7/25/2026,Move to savings\n"
+        ).encode("utf-8")
+
+        with self.assertRaisesMessage(ServiceError, "must have a matching debit and credit"):
+            BulkTransactionUploadService().upload(
+                self.user,
+                SimpleUploadedFile("transfers.csv", csv_content, content_type="text/csv"),
+            )
+
+        self.assertEqual(Transaction.objects.filter(user=self.user).count(), 0)
+        self.assertFalse(Transfer.objects.filter(user=self.user).exists())
+        self.account.refresh_from_db()
+        self.assertEqual(self.account.current_balance, Decimal("500.00"))
+
     def test_export_sign_matches_category_normal_side(self):
+        self.user.is_staff = True
+        self.user.save(update_fields=["is_staff"])
         self.client.force_login(self.user)
         category = Category.objects.create(
             name="Salary",
@@ -1424,6 +1800,32 @@ class GroupPageTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Groups")
+
+    def test_group_creator_can_update_group_details(self):
+        self.client.force_login(self.user)
+        group = GroupService.create_group(name="Weekend trip", created_by=self.user)
+
+        response = self.client.post(
+            reverse("group-update", kwargs={"pk": group.pk}),
+            {"name": "Updated trip", "description": "Autumn plans"},
+        )
+
+        self.assertRedirects(response, reverse("group-detail", kwargs={"pk": group.pk}))
+        group.refresh_from_db()
+        self.assertEqual(group.name, "Updated trip")
+        self.assertEqual(group.description, "Autumn plans")
+
+    def test_non_creator_cannot_update_group(self):
+        group = GroupService.create_group(name="Creator-owned", created_by=self.user)
+        member = User.objects.create_user(username="group-member", password="strong-pass")
+        GroupMember.objects.create(group=group, user=member)
+        self.client.force_login(member)
+
+        response = self.client.get(reverse("group-update", kwargs={"pk": group.pk}))
+
+        self.assertEqual(response.status_code, 404)
+        group.refresh_from_db()
+        self.assertEqual(group.name, "Creator-owned")
 
     def test_group_creator_can_delete_group_data_without_deleting_personal_transaction(self):
         self.client.force_login(self.user)

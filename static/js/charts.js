@@ -26,6 +26,23 @@ window.FinFlowCharts = (function () {
     return '₹' + formatted + suffix;
   };
 
+  const pointSelection = (callback) => callback ? {
+    dataPointSelection: (_event, _chart, selection) => {
+      callback(selection.dataPointIndex, selection.seriesIndex);
+    },
+  } : undefined;
+
+  const openTransactions = (baseUrl, filters) => {
+    if (!baseUrl) return;
+    const url = new URL(baseUrl, window.location.origin);
+    Object.entries(filters).forEach(([key, value]) => {
+      if (value !== undefined && value !== null && value !== '') {
+        url.searchParams.set(key, String(value));
+      }
+    });
+    window.location.assign(url.toString());
+  };
+
   const baseOptions = {
     chart: {
       fontFamily: '"Plus Jakarta Sans", sans-serif',
@@ -49,7 +66,7 @@ window.FinFlowCharts = (function () {
     },
   };
 
-  function renderMonthlyTrend(containerId, data) {
+  function renderMonthlyTrend(containerId, data, options = {}) {
     const el = document.getElementById(containerId);
     if (!el || !data || !data.length || typeof ApexCharts === 'undefined') return;
 
@@ -60,7 +77,21 @@ window.FinFlowCharts = (function () {
 
     const chart = new ApexCharts(el, {
       ...baseOptions,
-      chart: { ...baseOptions.chart, type: 'area', height: 300 },
+      chart: {
+        ...baseOptions.chart,
+        type: 'area',
+        height: 300,
+        events: pointSelection((dataPointIndex, seriesIndex) => {
+          const point = data[dataPointIndex];
+          if (!point) return;
+          const series = ['income', 'expense', 'investment'][seriesIndex];
+          const filters = {
+            month: `${point.year}-${String(point.month).padStart(2, '0')}`,
+            kind: series,
+          };
+          openTransactions(options.transactionListUrl, filters);
+        }),
+      },
       series: [
         { name: 'Income', data: income },
         { name: 'Expense', data: expense },
@@ -77,6 +108,8 @@ window.FinFlowCharts = (function () {
         },
       },
       stroke: { curve: 'smooth', width: 2.5 },
+      markers: { size: 4, hover: { size: 6 } },
+      tooltip: { ...baseOptions.tooltip, shared: false, intersect: true },
       xaxis: {
         categories: labels,
         labels: { style: { colors: '#8b9cb8', fontSize: '12px' } },
@@ -87,6 +120,66 @@ window.FinFlowCharts = (function () {
         labels: {
           style: { colors: '#8b9cb8', fontSize: '12px' },
           formatter: (v) => formatCompactCurrency(v),
+        },
+      },
+      legend: {
+        position: 'top',
+        horizontalAlign: 'right',
+        labels: { colors: '#8b9cb8' },
+        markers: { radius: 12 },
+      },
+      dataLabels: { enabled: false },
+    });
+
+    chart.render();
+    return chart;
+  }
+
+  function renderCategoryTimeline(containerId, data, options = {}) {
+    const el = document.getElementById(containerId);
+    if (
+      !el || !data?.categories?.length || !data?.points?.length
+      || typeof ApexCharts === 'undefined'
+    ) return;
+
+    const series = data.categories.map((category) => ({
+      name: category.name,
+      data: data.points.map((point) => point.values[category.id] || 0),
+    }));
+    const colors = data.categories.map((_, index) => COLORS[index % COLORS.length]);
+
+    const chart = new ApexCharts(el, {
+      ...baseOptions,
+      chart: {
+        ...baseOptions.chart,
+        type: 'line',
+        height: options.height || 320,
+        events: pointSelection((dataPointIndex, seriesIndex) => {
+          const point = data.points[dataPointIndex];
+          const category = data.categories[seriesIndex];
+          if (!point || !category) return;
+          openTransactions(options.transactionListUrl, {
+            month: `${point.year}-${String(point.month).padStart(2, '0')}`,
+            kind: 'expense',
+            category_id: category.id,
+          });
+        }),
+      },
+      series,
+      colors,
+      stroke: { curve: 'smooth', width: 2.5 },
+      markers: { size: 4, hover: { size: 6 } },
+      tooltip: { ...baseOptions.tooltip, shared: false, intersect: true },
+      xaxis: {
+        categories: data.points.map((point) => point.label),
+        labels: { style: { colors: '#8b9cb8', fontSize: '12px' } },
+        axisBorder: { show: false },
+        axisTicks: { show: false },
+      },
+      yaxis: {
+        labels: {
+          style: { colors: '#8b9cb8', fontSize: '12px' },
+          formatter: (value) => formatCompactCurrency(value),
         },
       },
       legend: {
@@ -113,7 +206,20 @@ window.FinFlowCharts = (function () {
 
     const chart = new ApexCharts(el, {
       ...baseOptions,
-      chart: { ...baseOptions.chart, type: 'donut', height: options.height || 280 },
+      chart: {
+        ...baseOptions.chart,
+        type: 'donut',
+        height: options.height || 280,
+        events: pointSelection((dataPointIndex) => {
+          const point = data[dataPointIndex];
+          if (!point) return;
+          openTransactions(options.transactionListUrl, {
+            category_id: point.category_id,
+            month: options.month,
+            kind: point.type,
+          });
+        }),
+      },
       series: values,
       labels: labels,
       colors: COLORS,
@@ -164,7 +270,19 @@ window.FinFlowCharts = (function () {
 
     const chart = new ApexCharts(el, {
       ...baseOptions,
-      chart: { ...baseOptions.chart, type: 'bar', height: options.height || 320 },
+      chart: {
+        ...baseOptions.chart,
+        type: 'bar',
+        height: options.height || 320,
+        events: pointSelection((dataPointIndex) => {
+          const point = data[dataPointIndex];
+          if (point) openTransactions(options.transactionListUrl, {
+            account_id: point.account_id,
+            month: options.month,
+            kind: 'investment',
+          });
+        }),
+      },
       series: [{ name: 'Amount', data: values }],
       colors: [options.color || '#6366f1'],
       plotOptions: {
@@ -208,7 +326,19 @@ window.FinFlowCharts = (function () {
 
     const chart = new ApexCharts(el, {
       ...baseOptions,
-      chart: { ...baseOptions.chart, type: 'bar', height: options.height || 320 },
+      chart: {
+        ...baseOptions.chart,
+        type: 'bar',
+        height: options.height || 320,
+        events: pointSelection((dataPointIndex) => {
+          const point = data[dataPointIndex];
+          if (point) openTransactions(options.transactionListUrl, {
+            category_id: point.category_id,
+            month: options.month,
+            kind: data_type,
+          });
+        }),
+      },
       series: [{ name: 'Amount', data: values }],
       colors: [options.color || '#6366f1'],
       plotOptions: {
@@ -241,13 +371,23 @@ window.FinFlowCharts = (function () {
     return chart;
   }
 
-  function renderAccountBar(containerId, data) {
+  function renderAccountBar(containerId, data, options = {}) {
     const el = document.getElementById(containerId);
     if (!el || !data || !data.length || typeof ApexCharts === 'undefined') return;
 
     const chart = new ApexCharts(el, {
       ...baseOptions,
-      chart: { ...baseOptions.chart, type: 'bar', height: Math.max(200, data.length * 48) },
+      chart: {
+        ...baseOptions.chart,
+        type: 'bar',
+        height: Math.max(200, data.length * 48),
+        events: pointSelection((dataPointIndex) => {
+          const point = data[dataPointIndex];
+          if (point) openTransactions(options.transactionListUrl, {
+            account_id: point.account_id,
+          });
+        }),
+      },
       series: [{ name: 'Balance', data: data.map((d) => d.balance) }],
       plotOptions: {
         bar: { borderRadius: 8, horizontal: true, barHeight: '65%' },
@@ -278,6 +418,7 @@ window.FinFlowCharts = (function () {
 
   return {
     renderMonthlyTrend,
+    renderCategoryTimeline,
     renderDonut,
     renderBar,
     renderBarHor,

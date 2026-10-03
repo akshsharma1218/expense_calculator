@@ -1685,6 +1685,116 @@ div form .form-label {
   pointer-events: none;
 }
 
+.setup-path {
+  padding: 4px 0 22px;
+  border-bottom: 1px solid var(--border);
+}
+
+.setup-path-heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.setup-path-kicker,
+.setup-step-state {
+  color: var(--accent-2);
+  font-size: 0.7rem;
+  font-weight: 800;
+}
+
+.setup-path-heading h2 {
+  margin: 4px 0 0;
+  font-size: 1.15rem;
+  font-weight: 700;
+}
+
+.setup-path-progress {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.setup-path-list {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.setup-path-step {
+  min-width: 0;
+  padding: 15px 12px 0 0;
+  border-top: 1px solid var(--border);
+}
+
+.setup-path-step.is-current { border-color: var(--accent-2); }
+.setup-path-step.is-locked { opacity: 0.58; }
+
+.setup-step-marker {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  margin-bottom: 12px;
+  place-items: center;
+  border: 1px solid var(--border-strong);
+  border-radius: 50%;
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.setup-path-step.is-complete .setup-step-marker {
+  border-color: var(--success);
+  background: rgba(52, 211, 153, 0.12);
+  color: var(--success);
+}
+
+.setup-path-step.is-current .setup-step-marker {
+  border-color: var(--accent-2);
+  background: rgba(34, 211, 238, 0.12);
+  color: var(--accent-2);
+}
+
+.setup-path-step h3 {
+  margin: 5px 0 6px;
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+.setup-path-step p {
+  min-height: 2.8em;
+  margin: 0 0 12px;
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.setup-step-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.setup-step-disabled {
+  cursor: not-allowed;
+  border-color: var(--border);
+  color: var(--muted);
+  opacity: 0.7;
+}
+
+.setup-step-lock {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
 /* ---- KPI Cards ---- */
 .kpi-grid {
   display: grid;

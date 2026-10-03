@@ -40,6 +40,24 @@ class GroupService(BaseService):
 
     @staticmethod
     @db_transaction.atomic
+    def update_group(*, group, updated_by, name, description=""):
+        locked_group = ExpenseGroup.objects.select_for_update().get(pk=group.pk)
+        if locked_group.created_by_id != updated_by.id:
+            raise ServiceError("Only the group creator can update this group.")
+
+        name = str(name).strip()
+        if not name:
+            raise ServiceError("Group name is required.")
+        if len(name) > 200:
+            raise ServiceError("Group name must be 200 characters or fewer.")
+
+        locked_group.name = name
+        locked_group.description = description or ""
+        locked_group.save(update_fields=["name", "description", "updated_at"])
+        return locked_group
+
+    @staticmethod
+    @db_transaction.atomic
     def delete_group(*, group, deleted_by):
         locked_group = ExpenseGroup.objects.select_for_update().get(pk=group.pk)
         if locked_group.created_by_id != deleted_by.id:

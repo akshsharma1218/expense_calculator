@@ -1,7 +1,9 @@
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 
 from django.db import transaction as db_transaction
-from ..models import Account, EntryType, Transaction, TransactionItem, Category
+from django.db.models import Q
+
+from ..models import Account, Category, EntryType, GroupExpense, Transaction, TransactionItem, Transfer
 from .balance import BalanceService
 from .base import BaseService, ServiceError
 from .groups import GroupService
@@ -56,7 +58,14 @@ class TransactionService(BaseService):
 
     @staticmethod
     def validate_amount(amount, items=None):
-        amount = Decimal(amount)
+        try:
+            amount = Decimal(amount)
+        except (InvalidOperation, TypeError, ValueError) as exc:
+            raise ServiceError("Transaction amount must be a valid number.") from exc
+        if not amount.is_finite():
+            raise ServiceError("Transaction amount must be a finite number.")
+        if amount == 0:
+            raise ServiceError("Transaction amount must be greater than zero.")
         TransactionService._log_info(
             "Validating transaction amount",
             amount=amount,
@@ -141,7 +150,7 @@ class TransactionService(BaseService):
             items=items,
         )
 
-        amount = Decimal(amount)
+        amount = TransactionService.validate_amount(amount)
         negative_amount = amount < 0
         amount = TransactionService.validate_amount(abs(amount), items)
 
@@ -184,6 +193,7 @@ class TransactionService(BaseService):
         *,
         transaction_obj,
         items=None,
+        transfer=None,
         **data,
     ):
         TransactionService._log_info(
@@ -201,7 +211,28 @@ class TransactionService(BaseService):
                 f"Cannot update immutable fields: {', '.join(sorted(invalid))}"
             )
         
-        original_transaction = Transaction.objects.get(pk=transaction_obj.pk)
+        original_transaction = Transaction.objects.select_for_update().get(pk=transaction_obj.pk)
+        linked_transfer = Transfer.objects.filter(
+            Q(debit_transaction_id=original_transaction.pk)
+            | Q(credit_transaction_id=original_transaction.pk)
+        ).first()
+        if linked_transfer and (
+            transfer is None or linked_transfer.pk != transfer.pk
+        ):
+            raise ServiceError("Transfers can only be updated from the transfer page.")
+        if transfer is not None and (
+            linked_transfer is None or linked_transfer.pk != transfer.pk
+        ):
+            raise ServiceError("This transaction does not belong to the selected transfer.")
+
+        if (
+            GroupExpense.objects.filter(transaction_id=original_transaction.pk).exists()
+            and {"amount", "category", "account"}.intersection(data)
+        ):
+            raise ServiceError(
+                "Update the group split before changing its amount, category, or account."
+            )
+
         original_account = TransactionService._lock_account(original_transaction.account_id)
         account = TransactionService._lock_account(data.get("account", transaction_obj.account).id)
 
@@ -224,19 +255,24 @@ class TransactionService(BaseService):
             items=items,
         )
 
-        negative_amount = (
-            Decimal(data["amount"]) < 0
+        raw_amount = (
+            TransactionService.validate_amount(data["amount"])
             if "amount" in data
+            else None
+        )
+        negative_amount = (
+            raw_amount < 0
+            if raw_amount is not None
             else original_transaction.entry_type != original_transaction.category.normal_side
         )
         if items is None:
             if "amount" in data:
-                data["amount"] = TransactionService.validate_amount(abs(Decimal(data["amount"])))
+                data["amount"] = TransactionService.validate_amount(abs(raw_amount))
         elif not items:
             raise ServiceError("At least one transaction item is required.")
         else:
             if "amount" in data:
-                data["amount"] = TransactionService.validate_amount(abs(Decimal(data["amount"])), items)
+                data["amount"] = TransactionService.validate_amount(abs(raw_amount), items)
             else:
                 raise ServiceError("Amount is required when updating transaction items.")
 
@@ -273,7 +309,7 @@ class TransactionService(BaseService):
 
     @staticmethod
     @db_transaction.atomic
-    def delete_transaction(transaction_obj):
+    def delete_transaction(transaction_obj, *, transfer=None):
         TransactionService._log_info(
             "Transaction delete started",
             transaction_id=getattr(transaction_obj, "id", None),
@@ -282,6 +318,19 @@ class TransactionService(BaseService):
 
         if transaction_obj.is_deleted:
             raise ServiceError("Transaction already deleted.")
+
+        linked_transfer = Transfer.objects.filter(
+            Q(debit_transaction_id=transaction_obj.pk)
+            | Q(credit_transaction_id=transaction_obj.pk)
+        ).first()
+        if linked_transfer and (
+            transfer is None or linked_transfer.pk != transfer.pk
+        ):
+            raise ServiceError("Transfers can only be deleted from the transfer page.")
+        if transfer is not None and (
+            linked_transfer is None or linked_transfer.pk != transfer.pk
+        ):
+            raise ServiceError("This transaction does not belong to the selected transfer.")
 
         GroupService.delete_group_expense(transaction_obj=transaction_obj)
         account = TransactionService._lock_account(transaction_obj.account_id)

@@ -31,7 +31,11 @@ chmod 600 deploy/ec2/.env.docker
 nano deploy/ec2/.env.docker
 ```
 
-Use the first generated value for `DJANGO_SECRET_KEY`, the second for `POSTGRES_PASSWORD`, and set `DOMAIN` to your real domain. Keep `.env.docker` private. Email and Gemini settings are optional.
+Use the first generated value for `DJANGO_SECRET_KEY`, the second for `POSTGRES_PASSWORD`, and set `DOMAIN` to your real domain. Keep `.env.docker` private.
+
+For verification and password-reset email delivery, set `EMAIL_BACKEND=django.core.mail.backends.smtp.EmailBackend`, `EMAIL_HOST_USER`, and `EMAIL_HOST_PASSWORD` in `.env.docker`. With Gmail, use a Google App Password rather than the account password, and set `DEFAULT_FROM_EMAIL` to an address Gmail permits that account to send as. `EMAIL_HOST`, `EMAIL_PORT`, and `EMAIL_USE_TLS` default to Gmail's SMTP settings; set the equivalent values for another provider. If SMTP credentials are missing or rejected, signup will report a delivery error and the application log will contain the SMTP failure.
+
+In local development, email uses Django's console backend unless SMTP credentials are configured. Console-backend messages are printed by the application process; they are not delivered to an inbox.
 
 ## 4. Start the app
 

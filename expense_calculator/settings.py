@@ -54,6 +54,9 @@ CORS_ALLOWED_ORIGINS = [
 # SECURITY: HTTPS and SSL configuration
 SECURE_SSL_REDIRECT = not DEBUG
 SESSION_COOKIE_SECURE = not DEBUG
+SESSION_COOKIE_AGE = int(os.getenv("SESSION_COOKIE_AGE", str(30 * 24 * 60 * 60)))
+SESSION_EXPIRE_AT_BROWSER_CLOSE = False
+SESSION_SAVE_EVERY_REQUEST = True
 CSRF_COOKIE_SECURE = not DEBUG
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
@@ -226,16 +229,11 @@ MEDIA_ROOT = Path(os.getenv("MEDIA_ROOT", str(BASE_DIR / "media")))
 LOGIN_URL = "users:login"
 LOGIN_REDIRECT_URL = "favorite-list"
 LOGOUT_REDIRECT_URL = "users:login"
+AUTHENTICATION_BACKENDS = ["users.backends.VerifiedApprovedBackend"]
 
 # ============================================================
 # EMAIL CONFIGURATION FOR PASSWORD RESET
 # ============================================================
-
-EMAIL_BACKEND = os.getenv(
-    "EMAIL_BACKEND",
-    "django.core.mail.backends.console.EmailBackend" if DEBUG
-    else "django.core.mail.backends.smtp.EmailBackend"
-)
 
 EMAIL_HOST = os.getenv("EMAIL_HOST", "smtp.gmail.com")
 EMAIL_PORT = int(os.getenv("EMAIL_PORT", "587"))
@@ -244,6 +242,14 @@ EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER", "")
 EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD", "")
 DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "noreply@finflow.app")
 SERVER_EMAIL = os.getenv("SERVER_EMAIL", "server@finflow.app")
+EMAIL_TIMEOUT = int(os.getenv("EMAIL_TIMEOUT", "15"))
+
+_default_email_backend = (
+    "django.core.mail.backends.smtp.EmailBackend"
+    if not DEBUG or (EMAIL_HOST_USER and EMAIL_HOST_PASSWORD)
+    else "django.core.mail.backends.console.EmailBackend"
+)
+EMAIL_BACKEND = os.getenv("EMAIL_BACKEND", _default_email_backend)
 
 
 # Create logs directory and configure log levels
@@ -364,15 +370,18 @@ MAX_UPLOAD_SIZE = 10 * 1024 * 1024  # 10MB
 # ============================================================
 
 CACHES = {
-    'default': {
-        'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
-        'LOCATION': 'expense-calculator-cache',
-        'OPTIONS': {
-            'MAX_ENTRIES': 1000
-        } if DEBUG else {
-            'MAX_ENTRIES': 10000
+    "default": (
+        {
+            "BACKEND": "django.core.cache.backends.redis.RedisCache",
+            "LOCATION": REDIS_URL,
         }
-    }
+        if REDIS_URL and "test" not in sys.argv
+        else {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "expense-calculator-cache",
+            "OPTIONS": {"MAX_ENTRIES": 1000 if DEBUG else 10000},
+        }
+    )
 }
 
 # Test fallback: use local SQLite when running Django tests unless explicitly disabled.

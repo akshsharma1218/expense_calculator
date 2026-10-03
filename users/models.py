@@ -24,6 +24,8 @@ class CustomUserManager(BaseUserManager):
     def create_user(self, email, password=None, **extra_fields):
         if not email:
             raise ValueError(_("Email is required"))
+        extra_fields.setdefault("is_approved", True)
+        extra_fields.setdefault("is_email_verified", True)
         email = self.normalize_email(email)
         user = self.model(email=email, **extra_fields)
         user.set_password(password)
@@ -33,6 +35,8 @@ class CustomUserManager(BaseUserManager):
     def create_superuser(self, email, password=None, **extra_fields):
         extra_fields.setdefault("is_staff", True)
         extra_fields.setdefault("is_superuser", True)
+        extra_fields.setdefault("is_approved", True)
+        extra_fields.setdefault("is_email_verified", True)
 
         if not extra_fields.get("is_staff"):
             raise ValueError(_("Superuser must have is_staff=True"))
@@ -57,6 +61,11 @@ class CustomUser(AbstractUser):
         _("email verified"),
         default=False,
         help_text=_("Designates whether this user's email has been verified."),
+    )
+    is_approved = models.BooleanField(
+        _("approved"),
+        default=False,
+        help_text=_("Designates whether an administrator approved this account."),
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

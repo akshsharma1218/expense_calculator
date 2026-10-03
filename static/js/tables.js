@@ -46,13 +46,24 @@ window.FinFlowTables = (function () {
     },
   };
 
-  function initTransactions(containerId, data, searchInputId) {
+  function initTransactions(containerId, data, searchInputId, options = {}) {
     const el = document.getElementById(containerId);
     if (!el || typeof Tabulator === 'undefined') return;
 
+    const userId = options.userId || 'anonymous';
+    const searchStorageKey = `finflow.transactions.search.${userId}`;
+    const searchFilter = (row, params) => {
+      const searchValue = params.value.toLocaleLowerCase();
+      return ['category', 'merchant', 'account', 'description'].some((field) =>
+        String(row[field] || '').toLocaleLowerCase().includes(searchValue)
+      );
+    };
     const table = new Tabulator(el, {
       ...baseConfig,
       data: data,
+      persistenceID: `finflow-transactions-${userId}`,
+      persistenceMode: 'local',
+      persistence: { filter: true, sort: true },
       initialSort: [{ column: 'date', dir: 'desc' }],
       columns: [
         {
@@ -98,13 +109,15 @@ window.FinFlowTables = (function () {
           headerSort: false,
           formatter: (cell) => {
             const row = cell.getData();
+            const editLabel = row.is_transfer ? 'Edit transfer' : 'Edit transaction';
+            const deleteLabel = row.is_transfer ? 'Delete transfer' : 'Delete transaction';
             return `
               <div class="d-inline-flex gap-2 align-items-center">
                 ${row.is_expense ? `<a href="${row.split_url}" class="btn-icon" title="${row.is_group_expense ? 'Edit split' : 'Split transaction'}" aria-label="${row.is_group_expense ? 'Edit split' : 'Split transaction'}"><i class="bi ${row.is_group_expense ? 'bi-people-fill' : 'bi-people'}" aria-hidden="true"></i></a>` : ''}
-                <a href="${row.edit_url}" class="btn-icon" title="Edit transaction" aria-label="Edit transaction">
+                <a href="${row.edit_url}" class="btn-icon" title="${editLabel}" aria-label="${editLabel}">
                   <i class="bi bi-pencil-square" aria-hidden="true"></i>
                 </a>
-                <a href="${row.delete_url}" class="btn-icon" title="Delete transaction" aria-label="Delete transaction" onclick="return confirm('Delete this transaction?')">
+                <a href="${row.delete_url}" class="btn-icon" title="${deleteLabel}" aria-label="${deleteLabel}" onclick="return confirm('${deleteLabel}?')">
                   <i class="bi bi-trash" aria-hidden="true"></i>
                 </a>
               </div>
@@ -116,16 +129,47 @@ window.FinFlowTables = (function () {
 
     const searchInput = document.getElementById(searchInputId);
     if (searchInput) {
-      searchInput.addEventListener('input', () => {
-        table.setFilter([
-          [
-            { field: 'category', type: 'like', value: searchInput.value },
-            { field: 'merchant', type: 'like', value: searchInput.value },
-            { field: 'account', type: 'like', value: searchInput.value },
-            { field: 'description', type: 'like', value: searchInput.value },
-          ],
-        ]);
-      });
+      try {
+        searchInput.value = window.localStorage.getItem(searchStorageKey) || '';
+      } catch (_error) {
+        searchInput.value = '';
+      }
+
+      const updateSearch = () => {
+        const value = searchInput.value.trim();
+        try {
+          if (value) window.localStorage.setItem(searchStorageKey, value);
+          else window.localStorage.removeItem(searchStorageKey);
+        } catch (_error) {
+          // Keep search usable when browser storage is unavailable.
+        }
+        if (value) table.setFilter(searchFilter, { value });
+        else table.removeFilter(searchFilter);
+      };
+
+      searchInput.addEventListener('input', updateSearch);
+      if (searchInput.value) updateSearch();
+
+      const clearButton = document.getElementById(options.clearButtonId);
+      if (clearButton) {
+        clearButton.addEventListener('click', () => {
+          searchInput.value = '';
+          try {
+            window.localStorage.removeItem(searchStorageKey);
+          } catch (_error) {
+            // The table filters can still be cleared without storage access.
+          }
+          table.clearFilter(true);
+          table.setSort([{ column: 'date', dir: 'desc' }]);
+          table.setPage(1);
+
+          const url = new URL(window.location.href);
+          ['month', 'kind', 'category_id', 'account_id', 'type'].forEach((key) => {
+            url.searchParams.delete(key);
+          });
+          if (url.search) window.location.assign(url.toString());
+        });
+      }
     }
 
     return table;

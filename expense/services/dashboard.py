@@ -159,7 +159,7 @@ class DashboardService(BaseService):
         rows = (
             Transaction.objects.filter(**filters)
             .exclude(category__category_type=Category.CategoryType.TRANSFER)
-            .values("category__name", "category__category_type")
+            .values("category_id", "category__name", "category__category_type")
             .annotate(
                 total=Sum(
                         Case(
@@ -173,6 +173,7 @@ class DashboardService(BaseService):
         )
         return [
             {
+                "category_id": str(row["category_id"]) if row["category_id"] else "",
                 "name": row["category__name"] or "Uncategorized",
                 "type": row["category__category_type"],
                 "total": float(row["total"] or 0),
@@ -194,6 +195,7 @@ class DashboardService(BaseService):
         )
         return [
             {
+                "account_id": str(account.pk),
                 "name": account.name,
                 "balance": float(account.current_balance),
                 "type": account.account_type,
@@ -236,11 +238,51 @@ class DashboardService(BaseService):
 
     @staticmethod
     def timeline_breakdown(*, user, months=6):
-        today = __import__("datetime").date.today()
+        today = date.today()
+        first_year, first_month = DashboardService._shift_month(
+            today.year,
+            today.month,
+            -(months - 1),
+        )
+        start_date = date(first_year, first_month, 1)
+        rows = (
+            Transaction.objects.filter(
+                user=user,
+                entry_type=EntryType.DEBIT,
+                transaction_date__gte=start_date,
+                transaction_date__lte=today,
+                is_deleted=False,
+            )
+            .exclude(category__category_type=Category.CategoryType.TRANSFER)
+            .values(
+                "transaction_date__year",
+                "transaction_date__month",
+                "category_id",
+                "category__name",
+            )
+            .annotate(total=Sum("amount"))
+            .order_by("category__name", "transaction_date__year", "transaction_date__month")
+        )
+
+        categories = {}
+        month_totals = {}
+        for row in rows:
+            category_id = str(row["category_id"])
+            month_key = (row["transaction_date__year"], row["transaction_date__month"])
+            categories[category_id] = row["category__name"] or "Uncategorized"
+            month_totals.setdefault(month_key, {})[category_id] = float(row["total"] or 0)
+
+        category_data = [
+            {"id": category_id, "name": name}
+            for category_id, name in categories.items()
+        ]
         points = []
         for offset in range(months - 1, -1, -1):
             year, month = DashboardService._shift_month(today.year, today.month, -offset)
-            expense = DashboardService.monthly_expense(user=user, month=month, year=year)
-            incomes = DashboardService.monthly_income(user=user, month=month, year=year)
-            points.append({"label": f"{__import__('calendar').month_abbr[month]} {year}", "expense": float(expense), "income": float(incomes)})
-        return points
+            points.append({
+                "month": month,
+                "year": year,
+                "label": f"{month_abbr[month]} {year}",
+                "values": month_totals.get((year, month), {}),
+            })
+        return {"categories": category_data, "points": points}

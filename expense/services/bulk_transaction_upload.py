@@ -1,5 +1,6 @@
 from decimal import Decimal, InvalidOperation
 import csv
+from collections import deque
 from datetime import datetime
 from io import StringIO
 
@@ -13,8 +14,10 @@ from ..models import (
     EntryType,
     Category,
     Merchant,
+    Transfer,
 )
 from .base import BaseService, ServiceError
+from .transfer import TransferService
 
 
 class BulkTransactionUploadService(BaseService):
@@ -46,10 +49,10 @@ class BulkTransactionUploadService(BaseService):
 
         # Keep existing ISO support, then allow slash-based CSV dates.
         formats = [
+            "%Y-%m-%d",
             "%m/%d/%Y",
             "%m-%d-%Y",
         ]
-        print(f"Attempting to parse date: {value}")
         for fmt in formats:
             try:
                 return datetime.strptime(value, fmt).date()
@@ -78,9 +81,7 @@ class BulkTransactionUploadService(BaseService):
             )
         
         decoded = file.read().decode("utf-8-sig")
-        print(f"Decoded CSV content:\n{decoded[:500]}...")  # Print first 500 chars for debugging
         reader = csv.DictReader(StringIO(decoded))
-        print(f"CSV headers: {reader.fieldnames}")  # Debugging output for headers
         if not reader.fieldnames:
             self._log_warning("Bulk CSV rejected due to missing headers")
             raise ServiceError("CSV file is empty or invalid format")
@@ -90,7 +91,6 @@ class BulkTransactionUploadService(BaseService):
 
         for index, row in enumerate(reader, start=2):
             row["_row"] = index
-            print(f"Extracted row {index}: {row}")  # Debugging output for each row
             rows.append(row)
 
         return rows
@@ -145,7 +145,6 @@ class BulkTransactionUploadService(BaseService):
                 # Normalize for downstream service/model handling.
                 row["transaction_date"] = parsed_date.isoformat()
 
-            print(f"Row {row} validated successfully.")
         if errors:
             raise ServiceError(
                 f"Validation failed with {len(errors)} error(s):\n"
@@ -295,6 +294,95 @@ class BulkTransactionUploadService(BaseService):
 
         return [item]
 
+    @staticmethod
+    def _create_imported_transfers(*, user, imported_transfer_rows):
+        transfer_groups = {}
+        for row, transaction in imported_transfer_rows:
+            key = (
+                transaction.transaction_date,
+                abs(transaction.amount),
+                (transaction.description or "").strip().casefold(),
+            )
+            transfer_groups.setdefault(key, []).append((row, transaction))
+
+        created = 0
+        for pair in transfer_groups.values():
+            debit_rows = [item for item in pair if item[1].entry_type == EntryType.DEBIT]
+            credit_rows = [item for item in pair if item[1].entry_type == EntryType.CREDIT]
+            if len(debit_rows) != len(credit_rows):
+                row_numbers = ", ".join(str(item[0]["_row"]) for item in pair)
+                raise ServiceError(
+                    f"Transfer rows {row_numbers} must have a matching debit and credit "
+                    "with the same date, description, and amount."
+                )
+
+            matched_credit = {}
+            matched_debit = {}
+            for debit_index, (_debit_row, debit_transaction) in enumerate(debit_rows):
+                queue = deque([debit_index])
+                visited_debits = {debit_index}
+                parent_credit = {}
+                free_credit = None
+
+                while queue and free_credit is None:
+                    current_debit = queue.popleft()
+                    current_account_id = debit_rows[current_debit][1].account_id
+                    for credit_index, (_credit_row, credit_transaction) in enumerate(credit_rows):
+                        if (
+                            credit_transaction.account_id == current_account_id
+                            or credit_index in parent_credit
+                        ):
+                            continue
+                        parent_credit[credit_index] = current_debit
+                        previous_debit = matched_credit.get(credit_index)
+                        if previous_debit is None:
+                            free_credit = credit_index
+                            break
+                        if previous_debit not in visited_debits:
+                            visited_debits.add(previous_debit)
+                            queue.append(previous_debit)
+
+                if free_credit is None:
+                    row_numbers = ", ".join(str(item[0]["_row"]) for item in pair)
+                    raise ServiceError(
+                        f"Transfer rows {row_numbers} cannot be paired across different accounts."
+                    )
+
+                credit_index = free_credit
+                while credit_index is not None:
+                    assigned_debit = parent_credit[credit_index]
+                    previous_credit = matched_debit.get(assigned_debit)
+                    matched_credit[credit_index] = assigned_debit
+                    matched_debit[assigned_debit] = credit_index
+                    credit_index = previous_credit
+
+            for debit_index, credit_index in matched_debit.items():
+                debit_row, debit_transaction = debit_rows[debit_index]
+                credit_row, credit_transaction = credit_rows[credit_index]
+                if (
+                    debit_transaction.amount != credit_transaction.amount
+                    or debit_transaction.transaction_date != credit_transaction.transaction_date
+                ):
+                    raise ServiceError(
+                        f"Transfer rows {debit_row['_row']} and {credit_row['_row']} "
+                        "must have the same amount and date."
+                    )
+
+                Transfer.objects.create(
+                    user=user,
+                    created_by=user,
+                    transfer_type=TransferService._get_transfer_type(
+                        debit_transaction.account,
+                        credit_transaction.account,
+                    ),
+                    debit_transaction=debit_transaction,
+                    credit_transaction=credit_transaction,
+                    notes=(debit_transaction.description or credit_transaction.description or ""),
+                )
+                created += 1
+
+        return created
+
     #####################################################################
     # Upload
     #####################################################################
@@ -346,6 +434,7 @@ class BulkTransactionUploadService(BaseService):
         merchant_cache = self.load_merchants(rows, user)
 
         created = 0
+        imported_transfer_rows = []
 
         # Process transactions; any row failure aborts the whole batch.
         for row in rows:
@@ -356,7 +445,7 @@ class BulkTransactionUploadService(BaseService):
                 self._log_info(
                     f"{user}, type(user): {type(user)}, user.id: {getattr(user, 'id', None)}, row: {row}"
                 )
-                TransactionService.create_transaction(
+                transaction = TransactionService.create_transaction(
                     user=user,
                     account=account_cache[row["account"].strip()],
                     category=category_cache[row["category"].strip()],
@@ -367,6 +456,8 @@ class BulkTransactionUploadService(BaseService):
                     is_group_expense=False,
                     items=None,
                 )
+                if transaction.category.category_type == Category.CategoryType.TRANSFER:
+                    imported_transfer_rows.append((row, transaction))
                 created += 1
                 
             except ServiceError as e:
@@ -392,16 +483,23 @@ class BulkTransactionUploadService(BaseService):
                     f"Row {row.get('_row', 'unknown')}: Unexpected error: {str(e)}"
                 ) from e
 
+        transfer_count = self._create_imported_transfers(
+            user=user,
+            imported_transfer_rows=imported_transfer_rows,
+        )
+
         self._log_info(
             "Bulk transaction upload completed",
             user_id=getattr(user, "id", None),
             created=created,
+            transfers_created=transfer_count,
             failed=0,
             total=created,
         )
         return {
             "success": True,
             "created": created,
+            "transfers_created": transfer_count,
             "failed": 0,
             "total": created,
             "errors": None,

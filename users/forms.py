@@ -117,10 +117,15 @@ class CustomAuthenticationForm(forms.Form):
 
         if identifier and password:
             user = CustomUser.objects.find_by_identifier(identifier)
-            self.user_cache = (
-                authenticate(username=user.email, password=password)
-                if user else None
-            )
+            self.user_cache = None
+            if user and user.check_password(password):
+                if not user.is_active:
+                    raise ValidationError("This account is inactive. Contact an administrator.")
+                if not user.is_email_verified:
+                    raise ValidationError("Verify your email address before signing in.")
+                if not user.is_approved:
+                    raise ValidationError("Your account is waiting for administrator approval.")
+                self.user_cache = authenticate(username=user.email, password=password)
             if self.user_cache is None:
                 raise ValidationError("Invalid email, phone number, username, or password.")
         return self.cleaned_data

@@ -102,6 +102,7 @@
                 </div>
             </div>
 
+            {% if user.is_staff %}
             <div class="nav-section-group">
                 <span class="nav-section-title"><i class="bi bi-file-earmark-spreadsheet"></i> Import &amp; Export</span>
                 <div class="nav-items">
@@ -133,6 +134,7 @@
                     {% endif %}
                 </div>
             </div>
+            {% endif %}
 
             <!-- Groups Section -->
             <div class="nav-section-group">

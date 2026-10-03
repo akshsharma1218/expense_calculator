@@ -179,6 +179,11 @@ urlpatterns += [
         views.group_create,
         name="group-create",
     ),
+    path(
+        "groups/<uuid:pk>/edit/",
+        views.group_update,
+        name="group-update",
+    ),
 
     path(
         "groups/<uuid:pk>/",

@@ -37,6 +37,11 @@
             </div>
 
             <div class="d-flex justify-content-end">
+                {% if group.created_by_id == request.user.id %}
+                <a href="{% url 'group-update' group.id %}" class="btn-icon me-2" title="Edit group" aria-label="Edit {{ group.name }}">
+                    <i class="bi bi-pencil-square" aria-hidden="true"></i>
+                </a>
+                {% endif %}
                 <a href="{% url 'group-detail' group.id %}" class="btn btn-sm btn-outline-light">View Details <i class="bi bi-arrow-right ms-1"></i></a>
             </div>
         </div>

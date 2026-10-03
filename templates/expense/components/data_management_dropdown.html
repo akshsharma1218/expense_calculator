@@ -1,3 +1,48 @@
+{% if user.is_staff %}
+<div class="dropdown data-management-dropdown">
+    <button
+        class="btn-glow dropdown-toggle"
+        type="button"
+        id="dataManagementMenu"
+        data-bs-toggle="dropdown"
+        aria-expanded="false"
+    >
+        <i class="bi bi-arrow-down-up" aria-hidden="true"></i>
+        Import / Export
+    </button>
+    <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="dataManagementMenu">
+        <li>
+            <button class="dropdown-item" type="button" data-bs-toggle="modal" data-bs-target="#TransactionUploadModal">
+                <i class="bi bi-cloud-upload me-2" aria-hidden="true"></i>Import transactions
+            </button>
+        </li>
+        <li>
+            <button class="dropdown-item" type="button" data-bs-toggle="modal" data-bs-target="#DownloadTransactionsModal">
+                <i class="bi bi-cloud-download me-2" aria-hidden="true"></i>Export transactions
+            </button>
+        </li>
+        <li>
+            <a class="dropdown-item" href="{% url 'transaction-template' %}">
+                <i class="bi bi-file-earmark-arrow-down me-2" aria-hidden="true"></i>Download CSV template
+            </a>
+        </li>
+        <li><hr class="dropdown-divider"></li>
+        <li>
+            <a class="dropdown-item" href="{% url 'transaction-create' %}">
+                <i class="bi bi-plus-lg me-2" aria-hidden="true"></i>Add transaction
+            </a>
+        </li>
+        {% if request.resolver_match.url_name == 'dashboard' and user.is_superuser %}
+        <li>
+            <button class="dropdown-item" type="button" data-bs-toggle="modal" data-bs-target="#ReceiptUploadModal">
+                <i class="bi bi-receipt me-2" aria-hidden="true"></i>Import receipt
+            </button>
+        </li>
+        {% endif %}
+    </ul>
+</div>
+{% else %}
 <a href="{% url 'transaction-create' %}" class="btn-glow">
     <i class="bi bi-plus-lg" aria-hidden="true"></i> Add Transaction
 </a>
+{% endif %}

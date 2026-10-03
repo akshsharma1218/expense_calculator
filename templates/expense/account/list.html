@@ -6,10 +6,12 @@
 
 {% block topbar_actions %}
 <div class="quick-actions">
+    {% if user.is_staff %}
     <a href="{% url 'account-template' %}" class="btn btn-outline-secondary"><i class="bi bi-download" aria-hidden="true"></i> CSV Template</a>
     <button type="button" class="btn-glow" data-bs-toggle="modal" data-bs-target="#account-import">
         <i class="bi bi-cloud-upload" aria-hidden="true"></i> Import CSV
     </button>
+    {% endif %}
     <a href="{% url 'account-create' %}" class="btn-glow"><i class="bi bi-plus-lg" aria-hidden="true"></i> Add Account</a>
 </div>
 {% endblock %}
@@ -43,6 +45,7 @@
 {% endblock %}
 
 {% block modals %}
+{% if user.is_staff %}
 <div class="modal fade" id="account-import" tabindex="-1" aria-labelledby="accountImportTitle" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content">
@@ -67,6 +70,7 @@
         </div>
     </div>
 </div>
+{% endif %}
 {% endblock %}
 
 {% block extra_js %}
@@ -74,8 +78,9 @@
 document.addEventListener('DOMContentLoaded', function () {
     const data = {{ accounts_json|safe }};
     FinFlowTables.initAccounts('accountsTable', data, 'accountSearch');
-    if (window.location.hash === '#account-import') {
-        bootstrap.Modal.getOrCreateInstance(document.getElementById('account-import')).show();
+    const accountImportModal = document.getElementById('account-import');
+    if (window.location.hash === '#account-import' && accountImportModal) {
+        bootstrap.Modal.getOrCreateInstance(accountImportModal).show();
     }
 });
 </script>

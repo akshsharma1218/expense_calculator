@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Verify your FinFlow email</title>
+</head>
+<body style="margin:0;padding:0;background:#eef3ef;font-family:Arial,Helvetica,sans-serif;color:#172d24;">
+    <div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;">Verify your email. Admin approval is the next step.</div>
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#eef3ef;padding:32px 14px;">
+        <tr>
+            <td align="center">
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:600px;margin:0 auto;">
+                    <tr>
+                        <td style="padding:0 0 18px;">
+                            <table role="presentation" cellspacing="0" cellpadding="0">
+                                <tr>
+                                    <td width="38" height="38" align="center" valign="middle" style="background:#176b4b;border-radius:8px;color:#ffffff;font-size:20px;font-weight:700;">F</td>
+                                    <td style="padding-left:10px;color:#17392b;font-size:19px;font-weight:700;">FinFlow</td>
+                                </tr>
+                            </table>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="padding:38px 36px 34px;background:#ffffff;border:1px solid #d9e5dc;border-radius:10px;">
+                            <p style="margin:0 0 10px;color:#176b4b;font-size:12px;font-weight:700;letter-spacing:1px;text-transform:uppercase;">Your account setup · Step 1 of 2</p>
+                            <h1 style="margin:0 0 16px;color:#17392b;font-size:30px;line-height:1.2;font-weight:700;">Verify your email</h1>
+                            <p style="margin:0 0 24px;color:#40574a;font-size:16px;line-height:1.65;">Hi {{ first_name|default:"there" }}, confirm this address to continue setting up your FinFlow account.</p>
+
+                            <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin:0 0 26px;">
+                                <tr>
+                                    <td width="50%" valign="top" style="padding:12px 10px;border-top:3px solid #176b4b;background:#f0f6f1;">
+                                        <span style="display:block;color:#176b4b;font-size:11px;font-weight:700;">01 · EMAIL</span>
+                                        <span style="display:block;padding-top:4px;color:#20392d;font-size:13px;font-weight:700;">Verify your address</span>
+                                    </td>
+                                    <td width="50%" valign="top" style="padding:12px 10px;border-top:3px solid #c9d6cd;background:#f7f9f7;">
+                                        <span style="display:block;color:#77867c;font-size:11px;font-weight:700;">02 · REVIEW</span>
+                                        <span style="display:block;padding-top:4px;color:#52645a;font-size:13px;font-weight:700;">Admin approval</span>
+                                    </td>
+                                </tr>
+                            </table>
+
+                            <p style="margin:0 0 24px;">
+                                <a href="{{ verification_url }}" style="display:inline-block;padding:15px 25px;background:#176b4b;border:1px solid #176b4b;border-radius:6px;color:#ffffff;text-decoration:none;font-size:15px;font-weight:700;">Verify email address&nbsp; &#8594;</a>
+                            </p>
+                            <p style="margin:0 0 8px;color:#617168;font-size:13px;line-height:1.6;">The link expires in 24 hours. After verification, an administrator will review your account. You can sign in once that approval is complete.</p>
+                            <p style="margin:0 0 8px;color:#617168;font-size:13px;line-height:1.6;">Button not working? Paste this link into your browser:</p>
+                            <p style="margin:0;overflow-wrap:anywhere;word-break:break-word;font-size:12px;line-height:1.6;"><a href="{{ verification_url }}" style="color:#176b4b;">{{ verification_url }}</a></p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="padding:18px 4px 0;color:#6d7c72;font-size:12px;line-height:1.6;">
+                            If you did not create a FinFlow account, ignore this message. No account access will be granted without verification and approval.
+                        </td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+    </table>
+</body>
+</html>

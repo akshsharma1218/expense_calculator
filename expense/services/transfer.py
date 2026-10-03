@@ -1,4 +1,4 @@
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 
 from django.db import transaction as db_transaction
 
@@ -65,6 +65,18 @@ class TransferService(BaseService):
             raise ServiceError(
                 "Invalid destination account."
             )
+        if not from_account.is_active or not to_account.is_active:
+            raise ServiceError("Transfers require active accounts.")
+
+    @staticmethod
+    def _validate_amount(amount):
+        try:
+            amount = Decimal(amount)
+        except (InvalidOperation, TypeError, ValueError) as exc:
+            raise ServiceError("Transfer amount must be a valid positive number.") from exc
+        if not amount.is_finite() or amount <= 0:
+            raise ServiceError("Transfer amount must be a valid positive number.")
+        return amount
 
     @staticmethod
     def _get_transfer_type(from_account, to_account):
@@ -94,6 +106,7 @@ class TransferService(BaseService):
             from_account=from_account,
             to_account=to_account,
         )
+        amount = TransferService._validate_amount(amount)
 
         debit_category, credit_category = (
             TransferService._get_transfer_categories()
@@ -152,6 +165,7 @@ class TransferService(BaseService):
             from_account=from_account,
             to_account=to_account,
         )
+        amount = TransferService._validate_amount(amount)
 
         debit_category, credit_category = (
             TransferService._get_transfer_categories()
@@ -175,6 +189,7 @@ class TransferService(BaseService):
             transaction_date=transaction_date,
             description=notes,
             items=items,
+            transfer=transfer,
         )
 
         TransactionService.update_transaction(
@@ -185,6 +200,7 @@ class TransferService(BaseService):
             transaction_date=transaction_date,
             description=notes,
             items=items,
+            transfer=transfer,
         )
 
         
@@ -213,11 +229,13 @@ class TransferService(BaseService):
             )
 
         TransactionService.delete_transaction(
-            transfer.debit_transaction
+            transfer.debit_transaction,
+            transfer=transfer,
         )
 
         TransactionService.delete_transaction(
-            transfer.credit_transaction
+            transfer.credit_transaction,
+            transfer=transfer,
         )
 
         transfer.is_deleted = True

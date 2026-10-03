@@ -1,6 +1,7 @@
 from datetime import date
 from decimal import Decimal, InvalidOperation
 from io import StringIO
+from uuid import UUID
 import json
 import csv
 import logging
@@ -8,6 +9,8 @@ from calendar import month_abbr
 from django.contrib import messages
 from django.contrib.auth import get_user_model
 from django.contrib.auth.decorators import login_required
+from django.core.exceptions import PermissionDenied
+from django.db import IntegrityError
 from django.db.models import DecimalField, ProtectedError, Sum, Case, When, F, Q
 from django.db import transaction as db_transaction
 from django.shortcuts import (
@@ -74,6 +77,16 @@ from .validators import validate_file_upload, log_security_event
 
 logger = logging.getLogger(__name__)
 _RESERVED_LOG_RECORD_KEYS = frozenset(logging.makeLogRecord({}).__dict__.keys())
+
+
+def admin_only(view_func):
+    @login_required
+    def wrapped_view(request, *args, **kwargs):
+        if not request.user.is_staff:
+            raise PermissionDenied
+        return view_func(request, *args, **kwargs)
+
+    return wrapped_view
 
 
 def _safe_log_extra(extra):
@@ -205,6 +218,7 @@ def signup(request):
 
 
 @login_required
+@admin_only
 def receipt_upload(request):
     if request.method != "POST":
         _log_warning("Receipt upload rejected: invalid method", **_request_context(request))
@@ -334,6 +348,7 @@ def text_transaction_input(request):
 
 
 @login_required
+@admin_only
 def transactions_upload(request):
     if request.method != "POST":
         _log_warning("Transactions upload rejected: invalid method", **_request_context(request))
@@ -483,7 +498,53 @@ def dashboard(request):
                         _flash_error(request, error)
             return redirect("dashboard")
 
-    today = date.today()
+    today = timezone.localdate()
+
+    setup_steps = [
+        {
+            "key": "account",
+            "title": "Add an account",
+            "description": "Set up the account transactions will use.",
+            "complete": Account.objects.filter(user=request.user, is_active=True).exists(),
+        },
+        {
+            "key": "category",
+            "title": "Create an expense category",
+            "description": "Give spending a category so you can track it clearly.",
+            "complete": Category.objects.filter(
+                created_by=request.user,
+                category_type=Category.CategoryType.EXPENSE,
+            ).exists(),
+        },
+        {
+            "key": "budget",
+            "title": "Set this month's budget",
+            "description": "Choose an amount and a description for your monthly limit.",
+            "complete": Budget.objects.filter(
+                user=request.user,
+                month=today.month,
+                year=today.year,
+            ).exists(),
+        },
+        {
+            "key": "transaction",
+            "title": "Record your first transaction",
+            "description": "Add a transaction or, for staff, import a CSV.",
+            "complete": Transaction.objects.filter(
+                user=request.user,
+                is_deleted=False,
+            ).exists(),
+        },
+    ]
+
+    current_setup_step = next(
+        (step["key"] for step in setup_steps if not step["complete"]),
+        None,
+    )
+    for index, step in enumerate(setup_steps, start=1):
+        step["number"] = index
+        step["current"] = step["key"] == current_setup_step
+        step["locked"] = not step["complete"] and not step["current"]
 
     monthly_trend = DashboardService.monthly_trend(user=request.user)
     category_breakdown = DashboardService.category_breakdown(
@@ -496,6 +557,8 @@ def dashboard(request):
     context = {
         "quick_add_form": quick_add_form,
         "quick_add_ready": quick_add_ready,
+        "setup_steps": setup_steps,
+        "setup_complete": current_setup_step is None,
         "accounts": Account.objects.filter(
             user=request.user,
             is_active=True,
@@ -524,6 +587,7 @@ def dashboard(request):
         "chart_item_breakdown": json.dumps(DashboardService.item_breakdown(user=request.user, month=today.month, year=today.year)),
         "chart_timeline_breakdown": json.dumps(DashboardService.timeline_breakdown(user=request.user, months=6)),
         "current_month_label": f"{month_abbr[today.month]} {today.year}",
+        "current_month_value": today.strftime("%Y-%m"),
         "receipt_upload_form": ReceiptUploadForm(),
         "transactions_upload_form": TransactionsUploadForm(),
         "export_accounts": Account.objects.filter(
@@ -616,7 +680,6 @@ def account_list(request):
             user=request.user,
             is_active=True,
         )
-        .exclude(account_type=Account.AccountType.INVESTMENT)
         .only("id", "name", "account_type", "opening_balance", "current_balance", "created_at")
     )
 
@@ -655,6 +718,7 @@ def account_list(request):
 
 
 @login_required
+@admin_only
 def account_template_download(request):
     response = HttpResponse(content_type="text/csv; charset=utf-8")
     response["Content-Disposition"] = 'attachment; filename="accounts-template.csv"'
@@ -665,6 +729,7 @@ def account_template_download(request):
 
 
 @login_required
+@admin_only
 def account_upload(request):
     if request.method != "POST":
         return redirect("account-list")
@@ -828,7 +893,56 @@ def transaction_list(request):
         )
     )
 
+    month_value = request.GET.get("month", "")
+    try:
+        selected_month = date.fromisoformat(f"{month_value}-01") if len(month_value) == 7 else None
+    except ValueError:
+        selected_month = None
+    if selected_month:
+        transactions = transactions.filter(
+            transaction_date__year=selected_month.year,
+            transaction_date__month=selected_month.month,
+        )
+
+    transaction_type = request.GET.get("type")
+    if transaction_type in EntryType.values:
+        transactions = transactions.filter(entry_type=transaction_type)
+
+    kind = request.GET.get("kind")
+    if kind == "expense":
+        transactions = transactions.filter(entry_type=EntryType.DEBIT).exclude(
+            category__category_type=Category.CategoryType.TRANSFER
+        )
+    elif kind == "income":
+        transactions = transactions.filter(entry_type=EntryType.CREDIT).exclude(
+            category__category_type=Category.CategoryType.TRANSFER
+        )
+    elif kind == "investment":
+        transactions = transactions.filter(account__account_type=Account.AccountType.INVESTMENT)
+
+    for parameter, field in (("category_id", "category_id"), ("account_id", "account_id")):
+        raw_id = request.GET.get(parameter, "")
+        if raw_id:
+            try:
+                parsed_id = UUID(raw_id)
+            except (TypeError, ValueError, AttributeError):
+                continue
+            transactions = transactions.filter(**{field: parsed_id})
+
     transaction_ids = [transaction.pk for transaction in transactions]
+    transfer_edit_urls = {}
+    transfer_delete_urls = {}
+    for debit_id, credit_id, transfer_id in Transfer.objects.filter(
+        user=request.user,
+        is_deleted=False,
+    ).filter(
+        Q(debit_transaction_id__in=transaction_ids)
+        | Q(credit_transaction_id__in=transaction_ids)
+    ).values_list("debit_transaction_id", "credit_transaction_id", "pk"):
+        for transaction_id in (debit_id, credit_id):
+            transfer_edit_urls[transaction_id] = f"/transfers/{transfer_id}/edit/"
+            transfer_delete_urls[transaction_id] = f"/transfers/{transfer_id}/delete/"
+
     split_transaction_ids = set(
         GroupExpense.objects.filter(
             transaction_id__in=transaction_ids,
@@ -842,10 +956,13 @@ def transaction_list(request):
             "category": txn.category.name if txn.category else "—",
             "merchant": txn.merchant.name if txn.merchant else "—",
             "account": txn.account.name,
+            "account_id": str(txn.account_id),
+            "category_id": str(txn.category_id) if txn.category_id else "",
             "amount": float(txn.amount),
             "description": txn.description or "",
-            "delete_url": f"/transactions/{txn.id}/delete/",
-            "edit_url": f"/transactions/{txn.id}/edit/",
+            "delete_url": transfer_delete_urls.get(txn.pk, f"/transactions/{txn.id}/delete/"),
+            "edit_url": transfer_edit_urls.get(txn.pk, f"/transactions/{txn.id}/edit/"),
+            "is_transfer": txn.pk in transfer_edit_urls,
             "split_url": f"/transactions/{txn.id}/split/",
             "is_group_expense": txn.pk in split_transaction_ids,
             "is_expense": txn.entry_type == EntryType.DEBIT and txn.category.category_type != Category.CategoryType.TRANSFER,
@@ -952,6 +1069,14 @@ def transaction_update(request, pk):
         user=request.user,
         is_deleted=False,
     )
+
+    transfer = Transfer.objects.filter(
+        Q(debit_transaction=transaction) | Q(credit_transaction=transaction)
+    ).first()
+    print("Found transfer:", transfer)
+    if transfer is not None:
+        _flash_error(request, "Transfers can only be edited from the transfer page.")
+        return redirect("transfer-update", pk=transfer.pk)
 
     if request.method == "POST":
 
@@ -1381,6 +1506,7 @@ def transfer_list(request):
         .select_related(
             "debit_transaction__account",
             "credit_transaction__account",
+            "credit_transaction",
         )
         .filter(
             user=request.user,
@@ -1412,6 +1538,13 @@ def transaction_delete(
         is_deleted=False,
     )
 
+    transfer = Transfer.objects.filter(
+        Q(debit_transaction=transaction) | Q(credit_transaction=transaction)
+    ).first()
+    if transfer is not None:
+        _flash_error(request, "Transfers can only be deleted from the transfer page.")
+        return redirect("transfer-list")
+
     try:
         TransactionService.delete_transaction(transaction)
     except ServiceError as exc:
@@ -1434,8 +1567,8 @@ def budget_list(request):
     budgets = (
         Budget.objects.filter(user=request.user)
         .select_related("category")
-        .only("id", "month", "year", "amount", "category_id", "category__name")
-        .order_by("-year", "-month", "category__name")
+        .only("id", "month", "year", "amount", "description", "category_id", "category__name")
+        .order_by("-year", "-month", "description", "category__name")
     )
 
     budget_summaries = []
@@ -1466,15 +1599,17 @@ def budget_detail(request, pk):
     )
 
     status = BudgetService.get_budget_status(budget)
+    transactions = Transaction.objects.filter(
+        user=request.user,
+        entry_type=EntryType.DEBIT,
+        transaction_date__month=budget.month,
+        transaction_date__year=budget.year,
+        is_deleted=False,
+    )
+    if budget.category_id:
+        transactions = transactions.filter(category_id=budget.category_id)
     transactions = (
-        Transaction.objects.filter(
-            user=request.user,
-            category=budget.category,
-            entry_type=EntryType.DEBIT,
-            transaction_date__month=budget.month,
-            transaction_date__year=budget.year,
-            is_deleted=False,
-        )
+        transactions
         .select_related("account", "merchant")
         .only(
             "id",
@@ -1512,10 +1647,17 @@ def budget_create(request):
 
             budget = form.save(commit=False)
             budget.user = request.user
-            budget.save()
-
-            _flash_success(request, "Budget created.")
-            return redirect("budget-list")
+            today = timezone.localdate()
+            budget.month = today.month
+            budget.year = today.year
+            try:
+                with db_transaction.atomic():
+                    budget.save()
+            except IntegrityError:
+                form.add_error(None, "An overall budget already exists for this month.")
+            else:
+                _flash_success(request, "Monthly budget created.")
+                return redirect("budget-list")
 
     else:
         form = BudgetForm(user=request.user)
@@ -1653,6 +1795,42 @@ def group_create(request):
         "expense/group/form.html",
         {
             "form": form
+        },
+    )
+
+
+@login_required
+def group_update(request, pk):
+    group = get_object_or_404(
+        ExpenseGroup,
+        pk=pk,
+        created_by=request.user,
+    )
+    form = ExpenseGroupForm(
+        request.POST if request.method == "POST" else None,
+        instance=group,
+    )
+
+    if request.method == "POST" and form.is_valid():
+        try:
+            GroupService.update_group(
+                group=group,
+                updated_by=request.user,
+                name=form.cleaned_data["name"],
+                description=form.cleaned_data["description"],
+            )
+        except ServiceError as exc:
+            form.add_error(None, str(exc))
+        else:
+            _flash_success(request, "Group updated.")
+            return redirect("group-detail", pk=group.pk)
+
+    return render(
+        request,
+        "expense/group/form.html",
+        {
+            "form": form,
+            "title": "Update Group",
         },
     )
 
@@ -2125,6 +2303,7 @@ def monthly_report(request):
             transaction_date__year=selected_month_date.year,
         )
         .values(
+            "category_id",
             "category__name",
             "category__category_type",
         )
@@ -2141,6 +2320,7 @@ def monthly_report(request):
     )
     chart_data = [
         {
+            "category_id": str(item["category_id"]) if item["category_id"] else "",
             "name": item["category__name"] or "Uncategorized",
             "type": item["category__category_type"],
             "total": float(item["total"] or 0),
@@ -2159,6 +2339,7 @@ def monthly_report(request):
                 account__account_type=Account.AccountType.INVESTMENT,
             )
             .values(
+                "account_id",
                 "account__name",
             )
             .annotate(
@@ -2174,6 +2355,7 @@ def monthly_report(request):
         )
     investment_data = [
         {
+            "account_id": str(item["account_id"]),
             "name": item["account__name"] or "Uncategorized",
             "total": float(item["total"] or 0),
         }
@@ -2207,6 +2389,7 @@ def category_report(request):
         )
         .exclude(category__category_type=Category.CategoryType.TRANSFER)
         .values(
+            "category_id",
             "category__name",
             "category__category_type",
         )
@@ -2224,6 +2407,7 @@ def category_report(request):
 
     chart_data = [
         {
+            "category_id": str(item["category_id"]) if item["category_id"] else "",
             "name": item["category__name"] or "Uncategorized",
             "total": float(item["total"] or 0),
             "type": item["category__category_type"],
@@ -2240,6 +2424,7 @@ def category_report(request):
                 account__account_type=Account.AccountType.INVESTMENT,
             )
             .values(
+                "account_id",
                 "account__name",
             )
             .annotate(
@@ -2255,6 +2440,7 @@ def category_report(request):
         )
     investment_data = [
         {
+            "account_id": str(item["account_id"]),
             "name": item["account__name"] or "Uncategorized",
             "total": float(item["total"] or 0),
         }
@@ -2509,6 +2695,7 @@ def merchant_delete(request, pk):
 # ============================================================
 
 @login_required
+@admin_only
 def transaction_template_download(request):
     account = (
         Account.objects.filter(user=request.user, is_active=True)
@@ -2543,6 +2730,7 @@ def transaction_template_download(request):
 
 
 @login_required
+@admin_only
 def transaction_export(request):
     """Export transactions as CSV."""
     _log_info(
@@ -2572,6 +2760,8 @@ def transaction_export(request):
     account_id = request.GET.get('account')
     if account_id:
         queryset = queryset.filter(account_id=account_id)
+
+    transactions = list(queryset)
     
     # Create CSV response
     response = HttpResponse(content_type='text/csv')
@@ -2584,7 +2774,7 @@ def transaction_export(request):
         'merchant', 'amount', 'transaction_date', 'description'
     ])
     
-    for txn in queryset:
+    for txn in transactions:
         writer.writerow([
             txn.account.name,
             txn.category.name,
@@ -2599,6 +2789,6 @@ def transaction_export(request):
     _log_info(
         "Transactions export completed",
         user_id=request.user.id,
-        count=queryset.count(),
+        count=len(transactions),
     )
     return response

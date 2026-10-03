@@ -10,8 +10,8 @@
             <div class="glass-card-body">
                 <div class="d-flex justify-content-between align-items-start mb-4">
                     <div>
-                        <h2 class="page-title mb-1">{{ budget.category.name }}</h2>
-                        <p class="text-muted mb-0">{{ budget.month }}/{{ budget.year }}</p>
+                        <h2 class="page-title mb-1">{{ budget.description|default:budget.category.name|default:"Monthly budget" }}</h2>
+                        <p class="text-muted mb-0">{{ budget.month }}/{{ budget.year }}{% if not budget.category_id %} · All expenses{% endif %}</p>
                     </div>
                     <span class="budget-status {% if status.is_over_budget %}over{% else %}on-track{% endif %}">
                         {% if status.is_over_budget %}Over Budget{% else %}On Track{% endif %}
